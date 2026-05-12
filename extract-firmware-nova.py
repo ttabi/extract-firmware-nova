@@ -199,6 +199,7 @@ class TLV:
         self.filename = filename
         self.gpu = gpu
         self.entries = [("VERS", version)]
+        print(f"{filename} {self.entries}")
 
     def add(self, tag: str, value):
         if len(tag) != 4:
@@ -225,12 +226,12 @@ class TLV:
         os.makedirs(f"{outputpath}/nvidia/{self.gpu}/gsp/", exist_ok = True)
 
         with open(f"{outputpath}/nvidia/{self.gpu}/gsp/{self.filename}.tlv", "wb") as f:
-            f.write(struct.pack('4s', b"FWPM"))
+            f.write(struct.pack('4s', b"NVFW"))
 
             for tag, value in self.entries:
                 # Convert strings and integers into bytearrays
                 if isinstance(value, str):
-                    value = value.encode('ascii')
+                    value = value.encode('ascii') + b'\x00'
                 elif isinstance(value, int):
                     value = struct.pack('<I', value)
 
@@ -357,7 +358,7 @@ def booter(gpu, load, sigsize, fuse = "prod"):
 
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveBooter{LOAD}Ucode_{GPU}.c"
 
-    tlv = TLV("booter", gpu)
+    tlv = TLV(f"booter_{load}", gpu)
 
     # Query the number of signatures.  This should be a 4-byte array (32-bit little-endian integer)
     bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "num_sigs")
@@ -419,8 +420,8 @@ def booter(gpu, load, sigsize, fuse = "prod"):
     tlv.add("CDSZ", os_code_size)
     tlv.add("DAOF", os_data_offset)
     tlv.add("DASZ", os_data_size)
-    tlv.add("APOF", app_code_offset)
-    tlv.add("APSZ", app_code_size)
+    tlv.add("A0CO", app_code_offset)
+    tlv.add("A0CS", app_code_size)
 
     # Extract the actual booter firmware
     firmware = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", f"image_{fuse}")
@@ -502,8 +503,8 @@ def scrubber(gpu, sigsize, fuse = "prod"):
     tlv.add("CDSZ", os_code_size)
     tlv.add("DAOF", os_data_offset)
     tlv.add("DASZ", os_data_size)
-    tlv.add("APOF", app_code_offset)
-    tlv.add("APSZ", app_code_size)
+    tlv.add("A0CO", app_code_offset)
+    tlv.add("A0CS", app_code_size)
 
     # Extract the actual scrubber firmware
     firmware = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"image_{fuse}")
