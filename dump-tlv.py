@@ -69,7 +69,11 @@ def show_tlv(path: str):
         pos += length
         pos += (-length) % 4  # skip padding
 
-        print(f'[{index}] tag="{tag}" length={length}')
+        if length == 4:
+            # 4-byte values may be integer
+            print(f'[{index}] tag="{tag}" length={length} value={struct.unpack('<I', value)[0]}')
+        else:
+            print(f'[{index}] tag="{tag}" length={length}')
         lines = hexdump(value)
         if len(lines) <= HEXDUMP_MAX_LINES:
             print('\n'.join(lines))
