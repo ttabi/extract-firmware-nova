@@ -207,9 +207,9 @@ class TLV:
 
         # Integers are a special case, as they have no "length" in Python
         if isinstance(value, int):
-            # For simplicity, we only support 32-bit unsigned integers
-            if not (0 <= value <= 0xFFFFFFFF):
-                raise MyException(f"TLV tag '{tag}' integer value {value} out of uint32 range")
+            # Reject negative numbers and integers larger than 64-bit
+            if not (0 <= value <= 0xFFFFFFFFFFFFFFFF):
+                raise MyException(f"TLV tag '{tag}' integer value {value} out of range")
         else:
             if len(value) == 0:
                 raise MyException(f"TLV tag '{tag}' as no data")
@@ -231,9 +231,11 @@ class TLV:
             for tag, value in self.entries:
                 # Convert strings and integers into bytearrays
                 if isinstance(value, str):
-                    value = value.encode('ascii') + b'\x00'
+                    # TLV strings are not null-termianted.
+                    value = value.encode('ascii')
                 elif isinstance(value, int):
-                    value = struct.pack('<I', value)
+                    # Support 32-bit and 64-bit integers
+                    value = struct.pack('<I' if value < 0x100000000 else '<Q', value)
 
                 f.write(struct.pack('<4sI', tag.encode('ascii'), len(value)))
                 f.write(value)
