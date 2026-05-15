@@ -195,11 +195,9 @@ def get_bytes(filename, array1, array2):
 
 class TLV:
     def __init__(self, filename: str, gpu: str):
-        global version
         self.filename = filename
         self.gpu = gpu
-        self.entries = [("VERS", version)]
-        print(f"{filename} {self.entries}")
+        self.entries = []
 
     def add(self, tag: str, value):
         if len(tag) != 4:
@@ -221,6 +219,10 @@ class TLV:
 
     def write(self):
         global outputpath
+        global version
+
+        # Add the version last so that it's not iterated over ever time
+        self.add("VERS", version)
 
         print(f"Creating nvidia/{self.gpu}/gsp/{self.filename}.tlv")
         os.makedirs(f"{outputpath}/nvidia/{self.gpu}/gsp/", exist_ok = True)
