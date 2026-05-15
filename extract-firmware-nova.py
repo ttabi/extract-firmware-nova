@@ -777,6 +777,116 @@ def symlinks():
         symlink(f"../../ga102/gsp/ucodes.bin", f"gb100/gsp/ucodes.bin")
         symlink(f"../../ga102/gsp/ucodes.bin", f"gb202/gsp/ucodes.bin")
 
+# Create a text file that can be inserted as-is to the WHENCE file of the
+# linux-firmware git repository.  We must also maintain compatibility with
+# the existing directory heirarchy that is defined by Nouveau, which is why
+# ga103/gsp -> ga102/gsp, but ad103 -> ad102.
+#
+# Some hard rules for the layout of files:
+#  1. No file of any version can symlink to a file of a different version,
+#     even if the files are identical.  This allows distros to ship each version
+#     independently.
+#  2. All files must be located in the /gsp/ subdirectory of the GPU directory,
+#     and there must be no symlinks to any files outside of the /gsp/ directory.
+#     This allows the Nova driver to find all of the files it needs inside
+#     the /gsp/ directory.
+#  3. Replacing a file/directory with a symlink (or vice versa) is strongly
+#     discouraged.  Many distros cannot handle this transition.
+#  4. Ideally, this file should only change when adding support for new GPUs,
+#     because newer versions of firmware images should have the same filename
+#     as previous versions.
+def whence(gsp_origin = None):
+    global outputpath
+    global version
+
+    if gsp_origin is None:
+        gsp_origin = f"NVIDIA-Linux-x86_64-{version}.run"
+
+    whence = []
+
+    whence.append(f"""
+File: nvidia/tu102/gsp/gen_bootloader.bin
+File: nvidia/tu102/gsp/gsp_bootloader.bin
+File: nvidia/tu102/gsp/booter_load.bin
+File: nvidia/tu102/gsp/booter_unload.bin
+File: nvidia/tu116/gsp/booter_load.bin
+File: nvidia/tu116/gsp/booter_unload.bin
+Link: nvidia/tu116/gsp/gen_bootloader.bin -> ../../tu102/gsp/gen_bootloader.bin
+Link: nvidia/tu116/gsp/gsp_bootloader.bin -> ../../tu102/gsp/gsp_bootloader.bin
+Link: nvidia/ga100/gsp/gen_bootloader.bin -> ../../tu102/gsp/gen_bootloader.bin
+File: nvidia/ga100/gsp/gsp_bootloader.bin
+File: nvidia/ga100/gsp/booter_load.bin
+File: nvidia/ga100/gsp/booter_unload.bin
+File: nvidia/ga102/gsp/gsp_bootloader.bin
+File: nvidia/ga102/gsp/booter_load.bin
+File: nvidia/ga102/gsp/booter_unload.bin
+File: nvidia/ad102/gsp/gsp_bootloader.bin
+File: nvidia/ad102/gsp/booter_load.bin
+File: nvidia/ad102/gsp/booter_unload.bin
+File: nvidia/ad102/gsp/scrubber.bin
+File: nvidia/gh100/gsp/gsp_bootloader.bin
+File: nvidia/gh100/gsp/fmc.bin
+File: nvidia/gb100/gsp/gsp_bootloader.bin
+File: nvidia/gb100/gsp/fmc.bin
+File: nvidia/gb202/gsp/gsp_bootloader.bin
+File: nvidia/gb202/gsp/fmc.bin
+
+File: nvidia/tu102/gsp/gsp.bin
+Origin: gsp_tu10x.bin from {gsp_origin}
+Link: nvidia/tu116/gsp/gsp.bin -> ../../tu102/gsp/gsp.bin
+Link: nvidia/ga100/gsp/gsp.bin -> ../../tu102/gsp/gsp.bin
+
+File: nvidia/ga102/gsp/gsp.bin
+Origin: gsp_ga10x.bin from {gsp_origin}
+Link: nvidia/ad102/gsp/gsp.bin -> ../../ga102/gsp/gsp.bin
+Link: nvidia/gh100/gsp/gsp.bin -> ../../ga102/gsp/gsp.bin
+Link: nvidia/gb100/gsp/gsp.bin -> ../../ga102/gsp/gsp.bin
+Link: nvidia/gb202/gsp/gsp.bin -> ../../ga102/gsp/gsp.bin
+""")
+
+    if os.path.exists(f"{outputpath}/nvidia/tu102/gsp/ucodes.bin"):
+        whence.append(f"""
+File: nvidia/tu102/gsp/ucodes.bin
+Origin: ucodes_tu10x.bin from {gsp_origin}
+Link: nvidia/tu116/gsp/ucodes.bin -> ../../tu102/gsp/ucodes.bin
+Link: nvidia/ga100/gsp/ucodes.bin -> ../../tu102/gsp/ucodes.bin
+""")
+
+    if os.path.exists(f"{outputpath}/nvidia/ga102/gsp/ucodes.bin"):
+        whence.append(f"""
+File: nvidia/ga102/gsp/ucodes.bin
+Origin: ucodes_ga10x.bin from {gsp_origin}
+Link: nvidia/ad102/gsp/ucodes.bin -> ../../ga102/gsp/ucodes.bin
+Link: nvidia/gh100/gsp/ucodes.bin -> ../../ga102/gsp/ucodes.bin
+Link: nvidia/gb100/gsp/ucodes.bin -> ../../ga102/gsp/ucodes.bin
+Link: nvidia/gb202/gsp/ucodes.bin -> ../../ga102/gsp/ucodes.bin
+""")
+
+    # Symlinks for GPUs that share all images
+    whence.append(f"""
+Link: nvidia/tu104/gsp -> ../tu102/gsp
+Link: nvidia/tu106/gsp -> ../tu102/gsp
+Link: nvidia/tu117/gsp -> ../tu116/gsp
+Link: nvidia/ga103/gsp -> ../ga102/gsp
+Link: nvidia/ga104/gsp -> ../ga102/gsp
+Link: nvidia/ga106/gsp -> ../ga102/gsp
+Link: nvidia/ga107/gsp -> ../ga102/gsp
+Link: nvidia/ad103 -> ad102
+Link: nvidia/ad104 -> ad102
+Link: nvidia/ad106 -> ad102
+Link: nvidia/ad107 -> ad102
+Link: nvidia/gb102 -> gb100
+Link: nvidia/gb203 -> gb202
+Link: nvidia/gb205 -> gb202
+Link: nvidia/gb206 -> gb202
+Link: nvidia/gb207 -> gb202
+""")
+
+    with open(f"{outputpath}/WHENCE.txt", 'w') as f:
+        f.writelines(whence)
+
+    print(f"Created {outputpath}/WHENCE.txt")
+
 def main():
     global outputpath
     global version
