@@ -317,7 +317,19 @@ def generic_bootloader(gpu):
 
     # Extract the descriptor (RM_FLCN_BL_DESC)
     descriptor = get_bytes(filename, f"RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_{GPU}", "ucode_desc")
-    tlv.add("DESC", descriptor)
+    (start_tag, dmem_load_off, code_off, code_size, data_off,
+        data_size) = struct.unpack("<6I", descriptor)
+    # Both RM and Nova only load the code section, and both assume that
+    # code_off and dmem_load_off are zero.
+    if code_off != 0:
+        raise MyException(f"code offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {code_off}")
+    if dmem_load_off != 0:
+        raise MyException(f"dmem load offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {dmem_load_off}")
+    # Ensure the start tag fits in the register
+    if start_tag > 65535:
+        raise MyException(f"start tag in ksec2BinArchiveBlUcode_{GPU} value of {start_tag} is too large")
+    tlv.add("STRT", start_tag)
+    tlv.add("CDSZ", code_size)
 
     # Extract the actual bootloader firmware
     firmware = get_bytes(filename, f"ksec2BinArchiveBlUcode_{GPU}", "ucode_image")
