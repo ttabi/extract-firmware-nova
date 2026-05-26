@@ -348,19 +348,46 @@ def gsp_bootloader(gpu: str, fuse = ""):
 
     GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmBoot_{GPU}.c"
+    name = f"gsp-bootloader-{gpu}{fuse}"
 
     tlv = TLV("gsp_bootloader", gpu)
 
     # Extract the descriptor (RM_RISCV_UCODE_DESC)
     # Note: the size of RM_RISCV_UCODE_DESC varies from version to version, but Nova
-    # only cares about the first few fields.
+    # only cares about the first few fields.  So we use unpack_from() which ignores excess
+    # bytes.
     descriptor = get_bytes(filename, f"kgspBinArchiveGspRmBoot_{GPU}", f"ucode_desc{fuse}")
-    tlv.add("DESC", descriptor)
+    (desc_version, bootloader_offset, bootloader_size, bootloader_param_offset, bootloader_param_size,
+     riscv_elf_offset, riscv_elf_size, app_version, manifest_offset, manifest_size, monitor_data_offset,
+     monitor_data_size, monitor_code_offset, monitor_code_size) = struct.unpack_from("<14I", descriptor)
+
+    if desc_version < 4:
+        raise MyException(f"unsupported version {desc_version} for {name}")
 
     # Extract the actual bootloader firmware
     firmware = get_bytes(filename, f"kgspBinArchiveGspRmBoot_{GPU}", f"ucode_image{fuse}")
-    tlv.add("BLOB", firmware)
 
+    # Validate a few of the offsets
+    if manifest_offset + manifest_size >= len(firmware):
+        raise MyException(f"{manifest_offset=}+{manifest_size=} is too large for {name}")
+    if monitor_data_offset + monitor_data_size >= len(firmware):
+        raise MyException(f"{monitor_data_offset=}+{monitor_data_size=} is too large for {name}")
+    if monitor_code_offset + monitor_code_size >= len(firmware):
+        raise MyException(f"{monitor_code_size=}+{monitor_code_size=} is too large for {name}")
+
+    if manifest_offset % 256 != 0:
+        raise MyException(f"{manifest_offset=} is not 256-byte aligned")
+    if monitor_data_offset % 256 != 0:
+        raise MyException(f"{monitor_data_offset=} is not 256-byte aligned")
+    if monitor_code_offset % 256 != 0:
+        raise MyException(f"{monitor_code_offset=} is not 256-byte aligned")
+
+    tlv.add("CDOF", monitor_code_offset)
+    tlv.add("DAOF", monitor_data_offset)
+    tlv.add("MFOF", manifest_offset)
+    tlv.add("APPV", app_version)
+
+    tlv.add("BLOB", firmware)
     tlv.write()
 
 # GSP Booter load and unload
