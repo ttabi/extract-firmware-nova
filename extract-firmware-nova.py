@@ -31,6 +31,7 @@ import gzip
 import struct
 import tempfile
 import urllib.request
+import shutil
 
 FLCN_BLK_ALIGNMENT = 256
 
@@ -308,7 +309,6 @@ def round_up_to_base(x, base = 10):
 # core to run GSP-RM on it.  This is only used on TU10x and GA100 GPUs.
 def generic_bootloader(gpu):
     global outputpath
-    global version
 
     GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_{GPU}.c"
@@ -340,7 +340,6 @@ def generic_bootloader(gpu):
 # GSP bootloader
 def gsp_bootloader(gpu: str, fuse = ""):
     global outputpath
-    global version
 
     # Prepend an underscore if not empty
     if len(fuse) > 0:
@@ -393,7 +392,6 @@ def gsp_bootloader(gpu: str, fuse = ""):
 # GSP Booter load and unload
 def booter(gpu, load, sigsize, fuse = "prod"):
     global outputpath
-    global version
 
     GPU = gpu.upper()
     LOAD = load.capitalize()
@@ -475,7 +473,6 @@ def booter(gpu, load, sigsize, fuse = "prod"):
 # GPU memory scrubber, needed for some GPUs and configurations
 def scrubber(gpu, sigsize, fuse = "prod"):
     global outputpath
-    global version
 
     # Unfortunately, RM breaks convention with the scrubber image and labels
     # the files and arrays with AD10X instead of AD102.
@@ -560,7 +557,6 @@ def scrubber(gpu, sigsize, fuse = "prod"):
 # comprises just three binary blobs.
 def fmc(gpu: str, fuse: str):
     global outputpath
-    global version
 
     GPU=gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}.c"
@@ -604,6 +600,32 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
     tlv.add("FILE", "gsp.bin")
     tlv.write()
 
+# Copy ucodes binaries if present (r610+) and creates its TLV.  Each ucodes.bin
+# is paired with the corresponding gsp.bin and loaded separately by the driver.
+def ucodes(gsp_build_dir):
+    global outputpath
+
+    ucodes_tu10x_src = os.path.join(gsp_build_dir, "ucodes_tu10x.bin")
+    ucodes_ga10x_src = os.path.join(gsp_build_dir, "ucodes_ga10x.bin")
+
+    if os.path.exists(ucodes_tu10x_src):
+        tlv = TLV("ucodes", "tu102")
+        tlv.add("SIZE", os.path.getsize(ucodes_tu10x_src))
+        tlv.add("FILE", "ucodes.bin")
+        tlv.write()
+
+        shutil.copyfile(ucodes_tu10x_src, f"{outputpath}/nvidia/tu102/gsp/ucodes.bin")
+        print(f"Copied ucodes_tu10x.bin to nvidia/tu102/gsp/ucodes.bin")
+
+    if os.path.exists(ucodes_ga10x_src):
+        tlv = TLV("ucodes", "ga102")
+        tlv.add("SIZE", os.path.getsize(ucodes_ga10x_src))
+        tlv.add("FILE", "ucodes.bin")
+        tlv.write()
+
+        shutil.copyfile(ucodes_ga10x_src, f"{outputpath}/nvidia/ga102/gsp/ucodes.bin")
+        print(f"Copied ucodes_ga10x.bin to nvidia/ga102/gsp/ucodes.bin")
+
 # Extract the GSP-RM firmware from the .run file and copy the binaries
 # to the target directory.
 def gsp_firmware_from_run(filename):
@@ -611,7 +633,6 @@ def gsp_firmware_from_run(filename):
     global version
 
     import subprocess
-    import shutil
 
     basename = os.path.basename(filename)
 
@@ -673,22 +694,13 @@ def gsp_firmware_from_run(filename):
         gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
         gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
 
-        # Copy ucodes binaries if present (r610+).  Each ucodes.bin is paired
-        # with the corresponding gsp.bin and loaded separately by the driver.
-        if os.path.exists('ucodes_tu10x.bin'):
-            shutil.copyfile('ucodes_tu10x.bin', f"{outputpath}/nvidia/tu102/gsp/ucodes-{version}.bin")
-            print(f"Copied ucodes_tu10x.bin to tu102/gsp/ucodes-{version}.bin")
-        if os.path.exists('ucodes_ga10x.bin'):
-            shutil.copyfile('ucodes_ga10x.bin', f"{outputpath}/nvidia/ga102/gsp/ucodes-{version}.bin")
-            print(f"Copied ucodes_ga10x.bin to ga102/gsp/ucodes-{version}.bin")
+        ucodes("")
 
 # Extract GSP firmware from a local build output directory.
 # This is an NVIDIA-internal feature for use with internal build systems.
 def gsp_firmware_from_build(gsp_build_dir):
     global outputpath
     global version
-
-    import shutil
 
     if not os.path.isdir(gsp_build_dir):
         raise MyException(f"GSP build directory does not exist: {gsp_build_dir}")
@@ -725,17 +737,7 @@ def gsp_firmware_from_build(gsp_build_dir):
     shutil.copyfile(ga10x_src, f"{outputpath}/nvidia/ga102/gsp/gsp-{version}.bin")
     print(f"Copied gsp_ga10x.bin to nvidia/ga102/gsp/gsp-{version}.bin")
 
-    # Copy ucodes binaries if present (r610+)
-    ucodes_tu10x_src = os.path.join(gsp_build_dir, "ucodes_tu10x.bin")
-    ucodes_ga10x_src = os.path.join(gsp_build_dir, "ucodes_ga10x.bin")
-
-    if os.path.exists(ucodes_tu10x_src):
-        shutil.copyfile(ucodes_tu10x_src, f"{outputpath}/nvidia/tu102/gsp/ucodes-{version}.bin")
-        print(f"Copied ucodes_tu10x.bin to nvidia/tu102/gsp/ucodes-{version}.bin")
-
-    if os.path.exists(ucodes_ga10x_src):
-        shutil.copyfile(ucodes_ga10x_src, f"{outputpath}/nvidia/ga102/gsp/ucodes-{version}.bin")
-        print(f"Copied ucodes_ga10x.bin to nvidia/ga102/gsp/ucodes-{version}.bin")
+    ucodes(gsp_build_dir)
 
 # Create a symlink, deleting the existing file/link if necessary
 def symlink(dest, source, target_is_directory = False):
@@ -798,22 +800,28 @@ def symlinks():
         symlink('gb202', d, target_is_directory = True)
 
     # Symlink the GSP-RM image
-    symlink(f"../../tu102/gsp/gsp.bin", f"tu116/gsp/gsp.bin")
-    symlink(f"../../tu102/gsp/gsp.bin", f"ga100/gsp/gsp.bin")
-    symlink(f"../../ga102/gsp/gsp.bin", f"ad102/gsp/gsp.bin")
-    symlink(f"../../ga102/gsp/gsp.bin", f"gh100/gsp/gsp.bin")
-    symlink(f"../../ga102/gsp/gsp.bin", f"gb100/gsp/gsp.bin")
-    symlink(f"../../ga102/gsp/gsp.bin", f"gb202/gsp/gsp.bin")
+    symlink("../../tu102/gsp/gsp.bin", "tu116/gsp/gsp.bin")
+    symlink("../../tu102/gsp/gsp.bin", "ga100/gsp/gsp.bin")
+    symlink("../../ga102/gsp/gsp.bin", "ad102/gsp/gsp.bin")
+    symlink("../../ga102/gsp/gsp.bin", "gh100/gsp/gsp.bin")
+    symlink("../../ga102/gsp/gsp.bin", "gb100/gsp/gsp.bin")
+    symlink("../../ga102/gsp/gsp.bin", "gb202/gsp/gsp.bin")
 
     # Symlink the ucodes binaries
-    if os.path.exists(f"tu102/gsp/ucodes.bin"):
-        symlink(f"../../tu102/gsp/ucodes.bin", f"tu116/gsp/ucodes.bin")
-        symlink(f"../../tu102/gsp/ucodes.bin", f"ga100/gsp/ucodes.bin")
-    if os.path.exists(f"ga102/gsp/ucodes.bin"):
-        symlink(f"../../ga102/gsp/ucodes.bin", f"ad102/gsp/ucodes.bin")
-        symlink(f"../../ga102/gsp/ucodes.bin", f"gh100/gsp/ucodes.bin")
-        symlink(f"../../ga102/gsp/ucodes.bin", f"gb100/gsp/ucodes.bin")
-        symlink(f"../../ga102/gsp/ucodes.bin", f"gb202/gsp/ucodes.bin")
+    if os.path.exists("tu102/gsp/ucodes.bin"):
+        symlink("../../tu102/gsp/ucodes.bin", "tu116/gsp/ucodes.bin")
+        symlink("../../tu102/gsp/ucodes.bin", "ga100/gsp/ucodes.bin")
+        symlink("../../tu102/gsp/ucodes.tlv", "tu116/gsp/ucodes.tlv")
+        symlink("../../tu102/gsp/ucodes.tlv", "ga100/gsp/ucodes.tlv")
+    if os.path.exists("ga102/gsp/ucodes.bin"):
+        symlink("../../ga102/gsp/ucodes.bin", "ad102/gsp/ucodes.bin")
+        symlink("../../ga102/gsp/ucodes.bin", "gh100/gsp/ucodes.bin")
+        symlink("../../ga102/gsp/ucodes.bin", "gb100/gsp/ucodes.bin")
+        symlink("../../ga102/gsp/ucodes.bin", "gb202/gsp/ucodes.bin")
+        symlink("../../ga102/gsp/ucodes.tlv", "ad102/gsp/ucodes.tlv")
+        symlink("../../ga102/gsp/ucodes.tlv", "gh100/gsp/ucodes.tlv")
+        symlink("../../ga102/gsp/ucodes.tlv", "gb100/gsp/ucodes.tlv")
+        symlink("../../ga102/gsp/ucodes.tlv", "gb202/gsp/ucodes.tlv")
 
 # Create a text file that can be inserted as-is to the WHENCE file of the
 # linux-firmware git repository.  We must also maintain compatibility with
