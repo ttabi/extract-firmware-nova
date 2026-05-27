@@ -38,6 +38,9 @@ FLCN_BLK_ALIGNMENT = 256
 class MyException(Exception):
     pass
 
+def round_up_to_base(x, base = 10):
+    return x + (base - x) % base
+
 # -------------------------------------------------------------------
 # Parse binhex arrays from OpenRM
 # -------------------------------------------------------------------
@@ -51,14 +54,26 @@ def parse_array(f):
         0x63, 0x60, 0x00, 0x02, 0x46, 0x20, 0x96, 0x02, 0x62, 0x66, 0x08, 0x13, 0x4c, 0x48, 0x42, 0x69,
         0x20, 0x00, 0x00, 0x30, 0x39, 0x0a, 0xfc, 0x24, 0x00, 0x00, 0x00,
     };
+
+    Or an array of u64:
+    static BINDATA_CONST NV_DECLARE_ALIGNED(NvU64, 8) kgspBinArchiveGspRmBoot_GA100_BINDATA_LABEL_UCODE_IMAGE_data[] =
+    {
+        0xfd1441144c3153edULL, 0x65de0b84b3bb7333ULL,
+        0x24b04d6682608b21ULL, 0x2c42c5c50916e3b9ULL,
+
     """
     output = b''
     for line in f:
         if "};" in line:
             break
-        bytes = [int(b, 16) for b in re.findall('0x[0-9a-f][0-9a-f]', line)]
-        if len(bytes) > 0:
-            output += struct.pack(f"{len(bytes)}B", *bytes)
+        # Try 64-bit ULL values first, then fall back to byte values
+        ulls = [int(val, 16) for val in re.findall(r'0x([0-9a-f]+)ULL', line, re.IGNORECASE)]
+        if len(ulls) > 0:
+            output += struct.pack(f"<{len(ulls)}Q", *ulls)
+        else:
+            bytes = [int(b, 16) for b in re.findall(r'0x[0-9a-f][0-9a-f]', line, re.IGNORECASE)]
+            if len(bytes) > 0:
+                output += struct.pack(f"{len(bytes)}B", *bytes)
 
     return output
 
@@ -66,7 +81,7 @@ def parse_struct(f):
     """Parses a struct definition and returns its binhex as bytes
 
     Example:
-    static const RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_TU102_ucode_desc_data = {
+    static const RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_TU102_BINDATA_LABEL_UCODE_DESC_data = {
         0xfd,
         0,
         {
@@ -119,14 +134,16 @@ def get_bytes(filename, array1, array2):
     The actual extraction of binhex bytes is handled by parse_array() or parse_struct().
     """
 
-    # Build the five possible array/struct names.  BINDATA_LABEL was added in r575,
-    # and NV_DECLARE_ALIGNED(NvU8, 8) was added in r590.
+    # A list of all expected array/struct names, and the size of the hex numbers.
+    # BINDATA_LABEL was added in r575, NV_DECLARE_ALIGNED(NvU8, 8) was added in r590,
+    # and NV_DECLARE_ALIGNED(NvU64, 8) was added in r615.
     arrays = [
-        f"static BINDATA_CONST NvU8 {array1}_{array2}_data",
-        f"static BINDATA_CONST NvU8 {array1}_BINDATA_LABEL_{array2.upper()}_data",
-        f"static BINDATA_CONST NV_DECLARE_ALIGNED(NvU8, 8) {array1}_BINDATA_LABEL_{array2.upper()}_data",
-        f"static const {array1}_{array2}_data",
-        f"static const {array1}_BINDATA_LABEL_{array2.upper()}_data",
+        (f"static BINDATA_CONST NvU8 {array1}_{array2}_data", 1),
+        (f"static BINDATA_CONST NvU8 {array1}_BINDATA_LABEL_{array2.upper()}_data", 1),
+        (f"static BINDATA_CONST NV_DECLARE_ALIGNED(NvU8, 8) {array1}_BINDATA_LABEL_{array2.upper()}_data", 1),
+        (f"static BINDATA_CONST NV_DECLARE_ALIGNED(NvU64, 8) {array1}_BINDATA_LABEL_{array2.upper()}_data", 8),
+        (f"static const {array1}_{array2}_data", 4),
+        (f"static const {array1}_BINDATA_LABEL_{array2.upper()}_data", 4),
     ]
 
     with open(filename) as f:
@@ -149,10 +166,11 @@ def get_bytes(filename, array1, array2):
             m = re.search(r"COMPRESSED SIZE \(bytes\): (\d+)", line)
             if m:
                 compressed_size = int(m.group(1))
-            m = next((a for a in arrays if a in line), None)
+            m = next((a for a in arrays if a[0] in line), None)
             if m:
                 # We found the array, so remember its name in case we need to report an error
-                array = m
+                array = m[0]
+                word_size = m[1]
                 break
         else:
             raise MyException(f"array {array1}_{array2}_data not found in {filename}")
@@ -161,7 +179,7 @@ def get_bytes(filename, array1, array2):
             output = parse_struct(f)
             # Struct entries reference themselves for the size.  The only way
             # to determine the actual size is to compile the C code.  Instead,
-            # just assume the header file is complete.
+            # just assume the struct definition is complete.
             data_size = len(output)
         else:
             output = parse_array(f)
@@ -177,18 +195,30 @@ def get_bytes(filename, array1, array2):
     if is_compressed and not compressed_size:
         raise MyException(f"array {array} in {filename} compressed size is undetermined")
 
+    # Just as a sanity check, make sure the compression was actually worth it
+    if is_compressed and compressed_size > data_size:
+        raise MyException(f"array {array} in {filename} compressed size is larger than uncompressed")
+
+    # If the data is encoded as 8-byte integers, then the COMPRESSED_SIZE value
+    # is actually the size of the compressed data before it was encoded into
+    # 8-byte integers.  So we need to round up the advertised size in order for it
+    # to match the actual size.
+
     if is_compressed:
-        if len(output) != compressed_size:
-            raise MyException(f"compressed array {array} in {filename} should be {compressed_size} bytes but is actually {len(output)}.")
+        expected_size = round_up_to_base(compressed_size, word_size)
+        if len(output) != expected_size:
+            raise MyException(f"compressed array {array} in {filename} should be {expected_size} bytes but is actually {len(output)}.")
         gzipheader = struct.pack("<4BL2B", 0x1f, 0x8b, 8, 0, 0, 0, 3)
         output = gzip.decompress(gzipheader + output)
         if len(output) != data_size:
             raise MyException(f"array {array} in {filename} decompressed to {len(output)} bytes but should have been {data_size} bytes.")
+
         return output
     else:
-        if len(output) != data_size:
-            raise MyException(f"array {array} in {filename} should be {data_size} bytes but is actually {len(output)}.")
-        return output
+        expected_size = round_up_to_base(data_size, word_size)
+        if len(output) != expected_size:
+            raise MyException(f"array {array} in {filename} should be {expected_size} bytes but is actually {len(output)}.")
+        return output[:data_size]
 
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
@@ -300,9 +330,6 @@ class ELF64:
 # -------------------------------------------------------------------
 # Generate firmware binaries
 # -------------------------------------------------------------------
-
-def round_up_to_base(x, base = 10):
-    return x + (base - x) % base
 
 # Generic Falcon bootloader.  First, FWSEC runs on the RISC-V GSP core.
 # Then this generic bootloader runs on the SEC2 core, in order to restart the GSP
