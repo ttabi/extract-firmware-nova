@@ -716,7 +716,6 @@ def gsp_firmware_from_build(gsp_build_dir):
     gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
 
-
     os.makedirs(f"{outputpath}/nvidia/tu102/gsp/", exist_ok = True)
     os.makedirs(f"{outputpath}/nvidia/ga102/gsp/", exist_ok = True)
 
@@ -1021,7 +1020,7 @@ def main():
     booter("ad102", "load", 384, fuse)
     booter("ad102", "unload", 384, fuse)
     gsp_bootloader("ad102", fuse)
-    scrubber("ad102", 384, fuse) # Not currently used by Nouveau
+#    scrubber("ad102", 384, fuse) # Not currently used by Nouveau
 
     gsp_bootloader("gh100", fuse)
     fmc("gh100", fmc_fuse)
