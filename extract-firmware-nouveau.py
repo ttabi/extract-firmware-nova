@@ -977,8 +977,18 @@ def main():
     gsp_bootloader("gb100", fuse)
     fmc("gb100", fmc_fuse)
 
+    # GB10B support was added in r580
+    if is_supported("gb10b"):
+        gsp_bootloader("gb10b", fuse)
+        fmc("gb10b", fmc_fuse)
+
     gsp_bootloader("gb202", fuse)
     fmc("gb202", fmc_fuse)
+
+    # GR100 support was added in r610
+    if is_supported("gr100"):
+        gsp_bootloader("gr100", fuse)
+        fmc("gr100", fmc_fuse)
 
     gsp_origin = None
 
