@@ -119,8 +119,32 @@ def gsp_bootloader(gpu, fuse = ""):
         firmware_size = len(firmware)
 
         # Extract the descriptor (RM_RISCV_UCODE_DESC)
+        # Note: the size of RM_RISCV_UCODE_DESC varies from version to version, but Nouveau
+        # only cares about the first few fields.  So we use unpack_from() which ignores excess
+        # bytes.
         descriptor = get_bytes(filename, f"kgspBinArchiveGspRmBoot_{GPU}", f"ucode_desc{fuse}")
         descriptor_size = len(descriptor) # 76 on TU10x/GA100, 84 on GA102+
+        (desc_version, bootloader_offset, bootloader_size, bootloader_param_offset, bootloader_param_size,
+         riscv_elf_offset, riscv_elf_size, app_version, manifest_offset, manifest_size, monitor_data_offset,
+         monitor_data_size, monitor_code_offset, monitor_code_size) = struct.unpack_from("<14I", descriptor)
+
+        if desc_version < 4:
+            raise MyException(f"unsupported version {desc_version} for {name}")
+
+        # Validate a few of the offsets
+        if manifest_offset + manifest_size >= len(firmware):
+            raise MyException(f"{manifest_offset=}+{manifest_size=} is too large for {name}")
+        if monitor_data_offset + monitor_data_size >= len(firmware):
+            raise MyException(f"{monitor_data_offset=}+{monitor_data_size=} is too large for {name}")
+        if monitor_code_offset + monitor_code_size >= len(firmware):
+            raise MyException(f"{monitor_code_size=}+{monitor_code_size=} is too large for {name}")
+
+        if manifest_offset % 256 != 0:
+            raise MyException(f"{manifest_offset=} is not 256-byte aligned")
+        if monitor_data_offset % 256 != 0:
+            raise MyException(f"{monitor_data_offset=} is not 256-byte aligned")
+        if monitor_code_offset % 256 != 0:
+            raise MyException(f"{monitor_code_offset=} is not 256-byte aligned")
 
         # First, add the nvfw_bin_hdr header
         total_size = round_up_to_base(24 + firmware_size + descriptor_size, FLCN_BLK_ALIGNMENT)
@@ -310,6 +334,17 @@ def scrubber(gpu, sigsize, fuse = "prod"):
 
         # Extract the descriptor (nvkm_gsp_booter_fw_hdr)
         descriptor = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"header_{fuse}")
+
+        # Extract some of individual fields of nvfw_hs_load_header_v2
+        # num_apps is the fifth field of struct nvfw_hs_load_header_v2
+        (os_code_offset, os_code_size, os_data_offset, os_data_size, num_apps,
+         app_code_offset, app_code_size, app_data_offset, app_data_size) = struct.unpack("<9I", descriptor)
+        # Verify that sizeof(descriptor) == 5 * 4 + num_apps * 16
+        if len(descriptor) != 5 * 4 + num_apps * 16:
+            raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} should be {5 * 4 + num_apps * 16} bytes, but is instead {len(descriptor)} bytes.")
+        # Nouveau depends on os_code_size == app_code_offset
+        if os_code_size != app_code_offset:
+            raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} has os_code_size={os_code_size} and app_code_offset={app_code_offset}, but they should be the same.")
 
         # Fifth, the descriptor
         f.write(descriptor)
