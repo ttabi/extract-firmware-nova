@@ -75,6 +75,18 @@ def generic_bootloader(gpu):
         descriptor = get_bytes(filename, f"RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_{GPU}", "ucode_desc")
         descriptor_size = len(descriptor) # 24
 
+        (start_tag, dmem_load_off, code_off, code_size, data_off,
+            data_size) = struct.unpack("<6I", descriptor)
+        # Both RM and Nouveau only load the code section, and both assume that
+        # code_off and dmem_load_off are zero.
+        if code_off != 0:
+            raise MyException(f"code offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {code_off}")
+        if dmem_load_off != 0:
+            raise MyException(f"dmem load offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {dmem_load_off}")
+        # Ensure the start tag fits in the register
+        if start_tag > 65535:
+            raise MyException(f"start tag in ksec2BinArchiveBlUcode_{GPU} value of {start_tag} is too large")
+
         # First, add the nvfw_bin_hdr header
         total_size = round_up_to_base(24 + firmware_size + descriptor_size, FLCN_BLK_ALIGNMENT)
         firmware_offset = 24 + descriptor_size
@@ -144,7 +156,7 @@ def booter(gpu, load, sigsize, fuse = "prod"):
         bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "num_sigs")
         if len(bytes) != 4:
             raise MyException(f"num_sigs array for {name} is wrong size of {len(bytes)}")
-        num_sigs = struct.unpack("<L", bytes)[0]
+        num_sigs = struct.unpack("<I", bytes)[0]
         if num_sigs < 1 or num_sigs > 15:
             raise MyException(f"out of range number of signatures ({num_sigs}) for {name}")
 
@@ -180,14 +192,25 @@ def booter(gpu, load, sigsize, fuse = "prod"):
 
         # Extract the patch location
         bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_loc")
-        patchloc = struct.unpack("<L", bytes)[0]
+        if len(bytes) != 4:
+            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(bytes)} bytes.")
+        patchloc = struct.unpack("<I", bytes)[0]
+
+        # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
+        # so if it's ever non-zero, something has changed.
+        bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_sig")
+        if len(bytes) != 4:
+            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(bytes)} bytes.")
+        patchsig = struct.unpack("<I", bytes)[0]
+        if patchsig != 0:
+            raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
 
         # Extract the patch meta variables
         bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_meta")
         fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", bytes)
 
         # Fourth, patch_loc[], patch_sig[], fuse_ver, engine_id, ucode_id, and num_sigs
-        f.write(struct.pack("<6L", patchloc, 0, fuse_ver, engine_id, ucode_id, num_sigs))
+        f.write(struct.pack("<6L", patchloc, patchsig, fuse_ver, engine_id, ucode_id, num_sigs))
 
         # Extract the descriptor (nvfw_hs_load_header_v2)
         descriptor = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", f"header_{fuse}")
@@ -233,7 +256,7 @@ def scrubber(gpu, sigsize, fuse = "prod"):
         bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "num_sigs")
         if len(bytes) != 4:
             raise MyException(f"num_sigs array for {name} is wrong size of {len(bytes)}")
-        num_sigs = struct.unpack("<L", bytes)[0]
+        num_sigs = struct.unpack("<I", bytes)[0]
         if num_sigs < 1 or num_sigs > 15:
             raise MyException(f"out of range number of signatures ({num_sigs}) for {name}")
 
@@ -265,14 +288,25 @@ def scrubber(gpu, sigsize, fuse = "prod"):
 
         # Extract the patch location
         bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_loc")
-        patchloc = struct.unpack("<L", bytes)[0]
+        if len(bytes) != 4:
+            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(bytes)} bytes.")
+        patchloc = struct.unpack("<I", bytes)[0]
+
+        # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
+        # so if it's ever non-zero, something has changed.
+        bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_sig")
+        if len(bytes) != 4:
+            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(bytes)} bytes.")
+        patchsig = struct.unpack("<I", bytes)[0]
+        if patchsig != 0:
+            raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
 
         # Extract the patch meta variables
         bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_meta")
         fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", bytes)
 
         # Fourth, patch_loc[], patch_sig[], fuse_ver, engine_id, ucode_id, and num_sigs
-        f.write(struct.pack("<6L", patchloc, 0, fuse_ver, engine_id, ucode_id, num_sigs))
+        f.write(struct.pack("<6L", patchloc, patchsig, fuse_ver, engine_id, ucode_id, num_sigs))
 
         # Extract the descriptor (nvkm_gsp_booter_fw_hdr)
         descriptor = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"header_{fuse}")
@@ -892,6 +926,9 @@ def main():
         with open("version.mk") as f:
             version = re.search(r'^NVIDIA_VERSION = ([^\s]+)', f.read(), re.MULTILINE).group(1)
         del f
+
+    if not version.isascii():
+        raise MyException(f"Version string {version} must not contain non-ASCII characters")
 
     print(f"Generating files for version {version}")
 
