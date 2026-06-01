@@ -28,171 +28,28 @@ import sys
 import os
 import argparse
 import re
-import gzip
 import struct
 import zlib
 import tempfile
 import urllib.request
 
-FLCN_BLK_ALIGNMENT = 256
-
-class MyException(Exception):
-    pass
-
-def round_up_to_base(x, base = 10):
-    return x + (base - x) % base
+# Locate the shared helper module relative to this script (not the current
+# working directory), so that the script can be run from anywhere.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from extract_firmware_common import (
+    FLCN_BLK_ALIGNMENT,
+    MyException,
+    round_up_to_base,
+    parse_array,
+    parse_struct,
+    get_bytes,
+    is_supported,
+    symlink,
+)
 
 # -------------------------------------------------------------------
-# Parse binhex arrays from OpenRM
+# Generate firmware binaries
 # -------------------------------------------------------------------
-
-def parse_array(f):
-    """Parses a bindata array definition and returns its binhex as bytes
-
-    Example:
-    static BINDATA_CONST NvU8 ksec2BinArchiveSecurescrubUcode_AD10X_header_prod_data[] =
-    {
-        0x63, 0x60, 0x00, 0x02, 0x46, 0x20, 0x96, 0x02, 0x62, 0x66, 0x08, 0x13, 0x4c, 0x48, 0x42, 0x69,
-        0x20, 0x00, 0x00, 0x30, 0x39, 0x0a, 0xfc, 0x24, 0x00, 0x00, 0x00,
-    };
-    """
-    output = b''
-    for line in f:
-        if "};" in line:
-            break
-        bytes = [int(b, 16) for b in re.findall('0x[0-9a-f][0-9a-f]', line)]
-        if len(bytes) > 0:
-            output += struct.pack(f"{len(bytes)}B", *bytes)
-
-    return output
-
-def parse_struct(f):
-    """Parses a struct definition and returns its binhex as bytes
-
-    Example:
-    static const RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_TU102_ucode_desc_data = {
-        0xfd,
-        0,
-        {
-            0x0,
-            0x200,
-            0x200,
-            0x100
-        }
-    };
-
-    """
-    output = b''
-    for line in f:
-        if "};" in line:
-            break
-        words = [int(b, 16) for b in re.findall('(?:0x|)[0-9a-f]+', line)]
-        if len(words) > 0:
-            output += struct.pack(f"<{len(words)}I", *words)
-
-
-    return output
-
-def get_bytes(filename, array1, array2):
-    """Extract the bytes for the given array or struct in the given file.
-
-    :param filename: the file to parse
-    :param array1: the first half of name of the array/struct to parse
-    :param array2: the second half
-    :returns: byte array
-
-    This function scans the file for the array or struct and returns a bytearray
-    of its contents, uncompressing the data if it is tagged as compressed.
-
-    This function assumes that each array/struct is immediately preceded with a
-    comment section that specifies whether the array is compressed and how many
-    bytes of data there should be.  Example:
-
-    //
-    // FUNCTION: ksec2GetBinArchiveSecurescrubUcode_AD10X("header_prod")
-    // FILE NAME: kernel/inc/securescrub/bin/ad10x/g_securescrubuc_sec2_ad10x_boot_from_hs_prod.h
-    // FILE TYPE: TEXT
-    // VAR NAME: securescrub_ucode_header_ad10x_boot_from_hs
-    // COMPRESSION: YES
-    // COMPLEX_STRUCT: NO
-    // DATA SIZE (bytes): 36
-    // COMPRESSED SIZE (bytes): 27
-    //
-    static BINDATA_CONST NvU8 ksec2BinArchiveSecurescrubUcode_AD10X_header_prod_data[] =
-
-    The actual extraction of binhex bytes is handled by parse_array() or parse_struct().
-    """
-
-    # Build the five possible array/struct names.  BINDATA_LABEL was added in r575,
-    # and NV_DECLARE_ALIGNED(NvU8, 8) was added in r590.
-    arrays = [
-        f"static BINDATA_CONST NvU8 {array1}_{array2}_data",
-        f"static BINDATA_CONST NvU8 {array1}_BINDATA_LABEL_{array2.upper()}_data",
-        f"static BINDATA_CONST NV_DECLARE_ALIGNED(NvU8, 8) {array1}_BINDATA_LABEL_{array2.upper()}_data",
-        f"static const {array1}_{array2}_data",
-        f"static const {array1}_BINDATA_LABEL_{array2.upper()}_data",
-    ]
-
-    with open(filename) as f:
-        for line in f:
-            m = re.search(r"COMPRESSION: (\w*)", line)
-            if m:
-                is_compressed = m.group(1) == "YES"
-            m = re.search(r"COMPLEX_STRUCT: (\w*)", line)
-            if m:
-                is_struct = m.group(1) == "YES"
-            m = re.search(r"DATA SIZE \(bytes\): (\d+)", line)
-            if m:
-                data_size = int(m.group(1))
-            m = re.search(r"DATA SIZE \(bytes\): sizeof\((\d+)\)", line)
-            if m:
-                data_size = None
-            m = re.search(r"COMPRESSED SIZE \(bytes\): N/A", line)
-            if m:
-                compressed_size = None
-            m = re.search(r"COMPRESSED SIZE \(bytes\): (\d+)", line)
-            if m:
-                compressed_size = int(m.group(1))
-            m = next((a for a in arrays if a in line), None)
-            if m:
-                # We found the array, so remember its name in case we need to report an error
-                array = m
-                break
-        else:
-            raise MyException(f"array {array1}_{array2}_data not found in {filename}")
-
-        if is_struct:
-            output = parse_struct(f)
-            # Struct entries reference themselves for the size.  The only way
-            # to determine the actual size is to compile the C code.  Instead,
-            # just assume the header file is complete.
-            data_size = len(output)
-        else:
-            output = parse_array(f)
-
-    if len(output) == 0:
-        raise MyException(f"no data found for {array} in {filename}")
-
-    # Structs are never compressed
-    if is_struct and is_compressed:
-        raise MyException(f"struct {array} in {filename} cannot be compressed")
-
-    # Make sure we actually read a compressed size
-    if is_compressed and not compressed_size:
-        raise MyException(f"array {array} in {filename} compressed size is undetermined")
-
-    if is_compressed:
-        if len(output) != compressed_size:
-            raise MyException(f"compressed array {array} in {filename} should be {compressed_size} bytes but is actually {len(output)}.")
-        gzipheader = struct.pack("<4BL2B", 0x1f, 0x8b, 8, 0, 0, 0, 3)
-        output = gzip.decompress(gzipheader + output)
-        if len(output) != data_size:
-            raise MyException(f"array {array} in {filename} decompressed to {len(output)} bytes but should have been {data_size} bytes.")
-        return output
-    else:
-        if len(output) != data_size:
-            raise MyException(f"array {array} in {filename} should be {data_size} bytes but is actually {len(output)}.")
-        return output
 
 # Generic Falcon bootloader.  First, FWSEC runs on the RISC-V GSP core.
 # Then this generic bootloader runs on the SEC2 core, in order to restart the GSP
@@ -738,19 +595,6 @@ def gsp_firmware_from_build(gsp_build_dir):
     if os.path.exists(ucodes_ga10x_src):
         shutil.copyfile(ucodes_ga10x_src, f"{outputpath}/nvidia/ga102/gsp/ucodes-{version}.bin")
         print(f"Copied ucodes_ga10x.bin to nvidia/ga102/gsp/ucodes-{version}.bin")
-
-# Create a symlink, deleting the existing file/link if necessary
-def symlink(dest, source, target_is_directory = False):
-    import errno
-
-    try:
-        os.symlink(dest, source, target_is_directory = target_is_directory)
-    except OSError as e:
-        if e.errno == errno.EEXIST:
-            os.remove(source)
-            os.symlink(dest, source, target_is_directory = target_is_directory)
-        else:
-            raise e
 
 # Create symlinks in the target directory for the other GPUs.  This mirrors
 # what the WHENCE file in linux-firmware does.
