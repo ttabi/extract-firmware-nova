@@ -37,15 +37,15 @@ import urllib.request
 # working directory), so that the script can be run from anywhere.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extract_firmware_common import (
-    FLCN_BLK_ALIGNMENT,
     MyException,
     round_up_to_base,
-    parse_array,
-    parse_struct,
     get_bytes,
     is_supported,
     symlink,
 )
+
+FLCN_BLK_ALIGNMENT = 256
+
 
 # -------------------------------------------------------------------
 # Generate firmware binaries

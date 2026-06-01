@@ -31,8 +31,6 @@ import re
 import gzip
 import struct
 
-FLCN_BLK_ALIGNMENT = 256
-
 class MyException(Exception):
     pass
 
