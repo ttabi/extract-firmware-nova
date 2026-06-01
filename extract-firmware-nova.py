@@ -63,7 +63,7 @@ class TLV:
                 raise MyException(f"TLV tag '{tag}' integer value {value} out of range")
         else:
             if len(value) == 0:
-                raise MyException(f"TLV tag '{tag}' as no data")
+                raise MyException(f"TLV tag '{tag}' has no data")
             # We don't want non-ASCII strings anywhere
             if isinstance(value, str) and not value.isascii():
                 raise MyException(f"TLV tag '{tag}' value is a string but contains non-ASCII characters")
@@ -546,6 +546,10 @@ def gsp_firmware_from_run(filename):
         gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
         gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
         gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
+        if os.path.isdir(f"{outputpath}/nvidia/gb10b/gsp"):
+            gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
+        if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
+            gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
         ucodes(f"{directory}/firmware/")
 
@@ -565,6 +569,9 @@ def gsp_firmware_from_build(gsp_build_dir):
     if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
         raise MyException(f"Firmware files are missing in {gsp_build_dir}")
 
+    os.makedirs(f"{outputpath}/nvidia/tu102/gsp/", exist_ok = True)
+    os.makedirs(f"{outputpath}/nvidia/ga102/gsp/", exist_ok = True)
+
     fwimage_from_gsp_elf(tu10x_src, "tu102")
     fwimage_from_gsp_elf(ga10x_src, "ga102")
 
@@ -579,6 +586,10 @@ def gsp_firmware_from_build(gsp_build_dir):
     gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
+    if os.path.isdir(f"{outputpath}/nvidia/gb10b/gsp"):
+        gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
+    if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
+        gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
     ucodes(gsp_build_dir)
 
@@ -587,6 +598,7 @@ def gsp_firmware_from_build(gsp_build_dir):
 def symlinks():
     global outputpath
     global version
+    from pathlib import Path
 
     print(f"Creating symlinks in {outputpath}/nvidia")
     os.chdir(f"{outputpath}/nvidia")
@@ -632,10 +644,12 @@ def symlinks():
     # Symlink the GSP-RM image
     symlink("../../tu102/gsp/gsp.bin", "tu116/gsp/gsp.bin")
     symlink("../../tu102/gsp/gsp.bin", "ga100/gsp/gsp.bin")
-    symlink("../../ga102/gsp/gsp.bin", "ad102/gsp/gsp.bin")
-    symlink("../../ga102/gsp/gsp.bin", "gh100/gsp/gsp.bin")
-    symlink("../../ga102/gsp/gsp.bin", "gb100/gsp/gsp.bin")
-    symlink("../../ga102/gsp/gsp.bin", "gb202/gsp/gsp.bin")
+
+    # Every other path
+    root = Path(f"{outputpath}/nvidia")
+    paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/gsp.bin")]
+    for p in paths:
+        symlink("../../ga102/gsp/gsp.bin", f"{p}/gsp/gsp.bin")
 
     # Symlink the ucodes binaries
     if os.path.exists("tu102/gsp/ucodes.bin"):
