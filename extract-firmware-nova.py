@@ -331,6 +331,21 @@ class ELF64:
 # Generate firmware binaries
 # -------------------------------------------------------------------
 
+# Newer Blackwell (and later) GPUs are not supported on older versions of OpenRM.
+# So check to see if the given GPU has the binhex source files needed.
+def is_supported(gpu):
+    GPU = gpu.upper()
+
+    gsp_bootloader = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmBoot_{GPU}.c"
+    if not os.path.isfile(gsp_bootloader):
+        return False
+
+    fmc = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmFmcGfwProdSigned_{GPU}.c"
+    if not os.path.isfile(fmc):
+        return False
+
+    return True
+
 # Generic Falcon bootloader.  First, FWSEC runs on the RISC-V GSP core.
 # Then this generic bootloader runs on the SEC2 core, in order to restart the GSP
 # core to run GSP-RM on it.  This is only used on TU10x and GA100 GPUs.
@@ -629,11 +644,11 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
 
 # Copy ucodes binaries if present (r610+) and creates its TLV.  Each ucodes.bin
 # is paired with the corresponding gsp.bin and loaded separately by the driver.
-def ucodes(gsp_build_dir):
+def ucodes(gsp_source):
     global outputpath
 
-    ucodes_tu10x_src = os.path.join(gsp_build_dir, "ucodes_tu10x.bin")
-    ucodes_ga10x_src = os.path.join(gsp_build_dir, "ucodes_ga10x.bin")
+    ucodes_tu10x_src = os.path.join(gsp_source, "ucodes_tu10x.bin")
+    ucodes_ga10x_src = os.path.join(gsp_source, "ucodes_ga10x.bin")
 
     if os.path.exists(ucodes_tu10x_src):
         tlv = TLV("ucodes", "tu102")
@@ -698,36 +713,41 @@ def gsp_firmware_from_run(filename):
                                     check=True, timeout=10,
                                     stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
             directory = result.stdout.strip().decode("ascii")
-            os.chdir(f"{directory}/firmware")
+
+            print(f"{directory=}")
         except subprocess.SubprocessError as e:
             print(e.output.decode())
             raise
 
-        if not os.path.exists('gsp_tu10x.bin') or not os.path.exists('gsp_ga10x.bin'):
+        tu10x_src = os.path.abspath(f"{directory}/firmware/gsp_tu10x.bin")
+        ga10x_src = os.path.abspath(f"{directory}/firmware/gsp_ga10x.bin")
+
+        if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
             raise MyException(f"Firmware files are missing in {basename}")
 
-        fwimage_from_gsp_elf("gsp_tu10x.bin", "tu102")
-        fwimage_from_gsp_elf("gsp_ga10x.bin", "ga102")
+        fwimage_from_gsp_elf(tu10x_src, "tu102")
+        fwimage_from_gsp_elf(ga10x_src, "ga102")
 
-        elf = ELF64("gsp_tu10x.bin")
+        elf = ELF64(tu10x_src)
         gsp_tlv_from_elf(elf, ".fwsignature_tu10x", "tu102")
         gsp_tlv_from_elf(elf, ".fwsignature_tu11x", "tu116")
         gsp_tlv_from_elf(elf, ".fwsignature_ga100", "ga100")
 
-        elf = ELF64("gsp_ga10x.bin")
+        elf = ELF64(ga10x_src)
         gsp_tlv_from_elf(elf, ".fwsignature_ga10x", "ga102")
         gsp_tlv_from_elf(elf, ".fwsignature_ad10x", "ad102")
         gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
         gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
         gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
 
-        ucodes("")
+        ucodes(f"{directory}/firmware/")
 
 # Extract GSP firmware from a local build output directory.
 # This is an NVIDIA-internal feature for use with internal build systems.
 def gsp_firmware_from_build(gsp_build_dir):
     global outputpath
-    global version
+
+    print(f"{gsp_build_dir=}")
 
     if not os.path.isdir(gsp_build_dir):
         raise MyException(f"GSP build directory does not exist: {gsp_build_dir}")
@@ -735,13 +755,11 @@ def gsp_firmware_from_build(gsp_build_dir):
     tu10x_src = os.path.join(gsp_build_dir, "gsp_tu10x.bin")
     ga10x_src = os.path.join(gsp_build_dir, "gsp_ga10x.bin")
 
-    if not os.path.exists(tu10x_src):
-        raise MyException(f"GSP firmware not found: {tu10x_src}")
-    if not os.path.exists(ga10x_src):
-        raise MyException(f"GSP firmware not found: {ga10x_src}")
+    if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
+        raise MyException(f"Firmware files are missing in {gsp_build_dir}")
 
-    fwimage_from_gsp_elf("gsp_tu10x.bin", "tu102")
-    fwimage_from_gsp_elf("gsp_ga10x.bin", "ga102")
+    fwimage_from_gsp_elf(tu10x_src, "tu102")
+    fwimage_from_gsp_elf(ga10x_src, "ga102")
 
     elf = ELF64(tu10x_src)
     gsp_tlv_from_elf(elf, ".fwsignature_tu10x", "tu102")
@@ -754,15 +772,6 @@ def gsp_firmware_from_build(gsp_build_dir):
     gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
-
-    os.makedirs(f"{outputpath}/nvidia/tu102/gsp/", exist_ok = True)
-    os.makedirs(f"{outputpath}/nvidia/ga102/gsp/", exist_ok = True)
-
-    shutil.copyfile(tu10x_src, f"{outputpath}/nvidia/tu102/gsp/gsp-{version}.bin")
-    print(f"Copied gsp_tu10x.bin to nvidia/tu102/gsp/gsp-{version}.bin")
-
-    shutil.copyfile(ga10x_src, f"{outputpath}/nvidia/ga102/gsp/gsp-{version}.bin")
-    print(f"Copied gsp_ga10x.bin to nvidia/ga102/gsp/gsp-{version}.bin")
 
     ucodes(gsp_build_dir)
 
@@ -1063,11 +1072,18 @@ def main():
     gsp_bootloader("gb100", fuse)
     fmc("gb100", fmc_fuse)
 
-#    gsp_bootloader("gb10b", fuse)
-#    fmc("gb10b", fmc_fuse)
+    # GB10B support was added in r580
+    if is_supported("gb10b"):
+        gsp_bootloader("gb10b", fuse)
+        fmc("gb10b", fmc_fuse)
 
     gsp_bootloader("gb202", fuse)
     fmc("gb202", fmc_fuse)
+
+    # GR100 support was added in r610
+    if is_supported("gr100"):
+        gsp_bootloader("gr100", fuse)
+        fmc("gr100", fmc_fuse)
 
     gsp_origin = None
 
@@ -1084,7 +1100,7 @@ def main():
                 gsp_firmware_from_run(f.name)
             del f
         elif os.path.isdir(args.driver):
-            gsp_firmware_from_build(args.driver)
+            gsp_firmware_from_build(os.path.abspath(args.driver))
             gsp_origin = f"local build ({args.driver})"
         else:
             if not os.path.exists(args.driver):
