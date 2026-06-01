@@ -21,8 +21,7 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-# Converts OpenRM binhex-encoded images to Nouveau- and Nova-compatible
-# binary blobs.
+# Converts OpenRM binhex-encoded images to Nouveau-compatible binary blobs.
 # See nouveau_firmware_layout.ods for documentation on the file format.
 
 import sys
@@ -42,6 +41,10 @@ class MyException(Exception):
 
 def round_up_to_base(x, base = 10):
     return x + (base - x) % base
+
+# -------------------------------------------------------------------
+# Parse binhex arrays from OpenRM
+# -------------------------------------------------------------------
 
 def parse_array(f):
     """Parses a bindata array definition and returns its binhex as bytes
@@ -339,7 +342,7 @@ def booter(gpu, load, sigsize, fuse = "prod"):
         # Verify that sizeof(descriptor) == 5 * 4 + num_apps * 16
         if len(descriptor) != 5 * 4 + num_apps * 16:
             raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} should be {5 * 4 + num_apps * 16} bytes, but is instead {len(descriptor)} bytes.")
-        # Nova depends on os_code_size == app_code_offset
+        # Nouveau depends on os_code_size == app_code_offset
         if os_code_size != app_code_offset:
             raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} has os_code_size={os_code_size} and app_code_offset={app_code_offset}, but they should be the same.")
 
@@ -540,7 +543,7 @@ def write_padded(f, b):
 # Unlike the other images, FMC firmware and its metadata are encapsulated in
 # an ELF image.  FMC metadata is simpler than the other firmware types, as it
 # comprises just three binary blobs.
-def fmc(gpu: str, fuse: str, elf64: bool):
+def fmc(gpu: str, fuse: str, elf64: bool = False):
     global outputpath
     global version
 
@@ -826,7 +829,7 @@ def symlinks():
 #     independently.
 #  2. All files must be located in the /gsp/ subdirectory of the GPU directory,
 #     and there must be no symlinks to any files outside of the /gsp/ directory.
-#     This allows the Nova driver to find all of the files it needs inside
+#     This allows the Nouveau driver to find all of the files it needs inside
 #     the /gsp/ directory.
 #  3. The WHENCE file should list each version in a separate block.  This wasn't
 #     enforced in early versions of the WHENCE file.
@@ -999,15 +1002,14 @@ def main():
 
     parser = argparse.ArgumentParser(
         description = 'Extract firmware binaries from the OpenRM git repository'
-        ' in a format expected by the Nouveau/Nova device drivers.',
+        ' in a format expected by the Nouveau device drivers.',
         epilog = 'Running as root and specifying -o /lib/firmware will install'
-        ' the firmware files directly where Nouveau and Nova expects them.'
+        ' the firmware files directly where Nouveau expects them.'
         ' The --revision option is useful for testing new firmware'
-        ' versions without changing Nouveau/Nova source code.'
+        ' versions without changing Nouveau source code.'
         ' The --driver option accepts a .run file path, a URL, or a local'
         ' build output directory.  If -d is given with no argument, the .run'
-        ' file is downloaded automatically.'
-        ' --elf32 and --elf64 are mutually exclusive.')
+        ' file is downloaded automatically.')
     parser.add_argument('-i', '--input', default = os.getcwd(),
         help = 'Path to source directory (where version.mk exists)')
     parser.add_argument('-o', '--output', default = os.path.join(os.getcwd(), '_out'),
@@ -1028,12 +1030,6 @@ def main():
         help = 'Also create symlinks for all supported GPUs')
     parser.add_argument('-w', '--whence', action='store_true',
         help = 'Also generate a WHENCE file')
-
-    elf_group = parser.add_mutually_exclusive_group()
-    elf_group.add_argument('--elf32', action='store_false', dest='elf64', default=True,
-        help = 'Generate Nouveau-compatible 32-bit ELF images for FMC')
-    elf_group.add_argument('--elf64', action='store_true', dest='elf64',
-        help = 'Generate Nova-compatible 64-bit ELF images for FMC (default)')
 
     args = parser.parse_args()
 
@@ -1092,16 +1088,16 @@ def main():
     booter("ad102", "load", 384, fuse)
     booter("ad102", "unload", 384, fuse)
     gsp_bootloader("ad102", fuse)
-    scrubber("ad102", 384, fuse) # Not currently used by Nouveau
+    # scrubber("ad102", 384, fuse) # Not currently used by Nouveau
 
     gsp_bootloader("gh100", fuse)
-    fmc("gh100", fmc_fuse, args.elf64)
+    fmc("gh100", fmc_fuse)
 
     gsp_bootloader("gb100", fuse)
-    fmc("gb100", fmc_fuse, args.elf64)
+    fmc("gb100", fmc_fuse)
 
     gsp_bootloader("gb202", fuse)
-    fmc("gb202", fmc_fuse, args.elf64)
+    fmc("gb202", fmc_fuse)
 
     gsp_origin = None
 
