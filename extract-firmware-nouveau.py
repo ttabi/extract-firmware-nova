@@ -523,7 +523,7 @@ def fmc(gpu: str, fuse: str, elf64: bool = False):
 
 # Extract the GSP-RM firmware from the .run file and copy the binaries
 # to the target directory.
-def gsp_firmware(filename):
+def gsp_firmware_from_run(filename):
     global outputpath
     global version
 
@@ -572,7 +572,10 @@ def gsp_firmware(filename):
             print(e.output.decode())
             raise
 
-        if not os.path.exists('gsp_tu10x.bin') or not os.path.exists('gsp_ga10x.bin'):
+        tu10x_src = os.path.abspath(f"{directory}/firmware/gsp_tu10x.bin")
+        ga10x_src = os.path.abspath(f"{directory}/firmware/gsp_ga10x.bin")
+
+        if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
             raise MyException(f"Firmware files are missing in {basename}")
 
         shutil.copyfile('gsp_tu10x.bin', f"{outputpath}/nvidia/tu102/gsp/gsp-{version}.bin")
@@ -604,10 +607,8 @@ def gsp_firmware_from_build(gsp_build_dir):
     tu10x_src = os.path.join(gsp_build_dir, "gsp_tu10x.bin")
     ga10x_src = os.path.join(gsp_build_dir, "gsp_ga10x.bin")
 
-    if not os.path.exists(tu10x_src):
-        raise MyException(f"GSP firmware not found: {tu10x_src}")
-    if not os.path.exists(ga10x_src):
-        raise MyException(f"GSP firmware not found: {ga10x_src}")
+    if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
+        raise MyException(f"Firmware files are missing in {gsp_build_dir}")
 
     os.makedirs(f"{outputpath}/nvidia/tu102/gsp/", exist_ok = True)
     os.makedirs(f"{outputpath}/nvidia/ga102/gsp/", exist_ok = True)
@@ -1002,7 +1003,7 @@ def main():
             with tempfile.NamedTemporaryFile(prefix = f'NVIDIA-Linux-x86_64-{version}-', suffix = '.run') as f:
                 print(f"Downloading driver from {args.driver} as {f.name}")
                 urllib.request.urlretrieve(args.driver, f.name)
-                gsp_firmware(f.name)
+                gsp_firmware_from_run(f.name)
             del f
         elif os.path.isdir(args.driver):
             gsp_firmware_from_build(args.driver)
@@ -1011,7 +1012,7 @@ def main():
             if not os.path.exists(args.driver):
                 raise MyException(f"File {args.driver} does not exist.")
 
-            gsp_firmware(args.driver)
+            gsp_firmware_from_run(args.driver)
 
     if args.symlink:
         symlinks()
