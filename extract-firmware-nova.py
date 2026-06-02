@@ -485,20 +485,30 @@ def gsp_firmware_from_run(filename):
 
     basename = os.path.basename(filename)
 
+    print(f"Validating {basename}")
+    try:
+        result = subprocess.run(['/bin/sh', filename, '--check'], shell=False,
+                                check=True, timeout=10,
+                                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+        output = result.stdout.strip().decode("ascii")
+        if not "check sums and md5 sums are ok" in output:
+            raise MyException(f"{basename} is not a valid Nvidia driver .run file")
+    except subprocess.CalledProcessError as error:
+        print(error.output.decode())
+        raise
+
     with tempfile.TemporaryDirectory() as temp:
-        os.chdir(temp)
-
         try:
-            print(f"Validating {basename}")
-
-            result = subprocess.run(['/bin/sh', filename, '--check'], shell=False,
-                                    check=True, timeout=10,
-                                    stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-            output = result.stdout.strip().decode("ascii")
-            if not "check sums and md5 sums are ok" in output:
-                raise MyException(f"{basename} is not a valid Nvidia driver .run file")
-        except subprocess.CalledProcessError as error:
-            print(error.output.decode())
+            # The .run file extracts its contents to a directory with the same
+            # name as the file itself, minus the .run.  The GSP-RM firmware
+            # images are in the 'firmware' subdirectory.
+            result = subprocess.run(['/bin/sh', filename, '--target-directory'], shell=False,
+                                    check=True, timeout=10, cwd=temp,
+                                    stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
+            target = result.stdout.strip().decode("ascii")
+            directory = f"{temp}/{target}"
+        except subprocess.SubprocessError as e:
+            print(e.output.decode())
             raise
 
         try:
@@ -506,24 +516,10 @@ def gsp_firmware_from_run(filename):
             # The -x parameter tells the installer to only extract the
             # contents and then exit.
             subprocess.run(['/bin/sh', filename, '-x'], shell=False,
-                           check=True, timeout=60,
+                           check=True, timeout=60, cwd=temp,
                            stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
         except subprocess.SubprocessError as error:
             print(error.output.decode())
-            raise
-
-        try:
-            # The .run file extracts its contents to a directory with the same
-            # name as the file itself, minus the .run.  The GSP-RM firmware
-            # images are in the 'firmware' subdirectory.
-            result = subprocess.run(['/bin/sh', filename, '--target-directory'], shell=False,
-                                    check=True, timeout=10,
-                                    stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
-            directory = result.stdout.strip().decode("ascii")
-
-            print(f"{directory=}")
-        except subprocess.SubprocessError as e:
-            print(e.output.decode())
             raise
 
         tu10x_src = os.path.abspath(f"{directory}/firmware/gsp_tu10x.bin")
