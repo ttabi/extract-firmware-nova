@@ -132,12 +132,12 @@ def gsp_bootloader(gpu, fuse = ""):
             raise MyException(f"unsupported version {desc_version} for {name}")
 
         # Validate a few of the offsets
-        if manifest_offset + manifest_size >= len(firmware):
-            raise MyException(f"{manifest_offset=}+{manifest_size=} is too large for {name}")
-        if monitor_data_offset + monitor_data_size >= len(firmware):
-            raise MyException(f"{monitor_data_offset=}+{monitor_data_size=} is too large for {name}")
-        if monitor_code_offset + monitor_code_size >= len(firmware):
-            raise MyException(f"{monitor_code_size=}+{monitor_code_size=} is too large for {name}")
+        if manifest_offset + manifest_size > len(firmware):
+            raise MyException(f"{manifest_offset=} + {manifest_size=} is too large for {name} (size={len(firmware)})")
+        if monitor_data_offset + monitor_data_size > len(firmware):
+            raise MyException(f"{monitor_data_offset=} + {monitor_data_size=} is too large for {name} (size={len(firmware)})")
+        if monitor_code_offset + monitor_code_size > len(firmware):
+            raise MyException(f"{monitor_code_offset=} + {monitor_code_size=} is too large for {name} (size={len(firmware)})")
 
         if manifest_offset % 256 != 0:
             raise MyException(f"{manifest_offset=} is not 256-byte aligned")
@@ -484,12 +484,18 @@ def fmc(gpu: str, fuse: str, elf64: bool = False):
 
     ucode_hash = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_hash")
     (ucode_hash_size, ucode_hash_padded_size) = sizes(ucode_hash)
+    if ucode_hash_size != 48:
+        raise MyException(f"FSP hash length for {gpu} should be 48 but is {len(ucode_hash)}")
 
     ucode_sig = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_sig")
     (ucode_sig_size, ucode_sig_padded_size) = sizes(ucode_sig)
+    if ucode_sig_size < 96 or ucode_sig_size > 384:
+        raise MyException(f"FSP signature for {gpu} has an invalid length of {ucode_sig_size}")
 
     ucode_pkey = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_pkey")
     (ucode_pkey_size, ucode_pkey_padded_size) = sizes(ucode_pkey)
+    if ucode_pkey_size < 97 or ucode_pkey_size > 384:
+        raise MyException(f"FSP public key for {gpu} has an invalid length of {ucode_pkey_size}")
 
     ucode_image = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_image")
     (ucode_image_size, ucode_image_padded_size) = sizes(ucode_image)
@@ -567,20 +573,30 @@ def gsp_firmware_from_run(filename):
 
     basename = os.path.basename(filename)
 
+    print(f"Validating {basename}")
+    try:
+        result = subprocess.run(['/bin/sh', filename, '--check'], shell=False,
+                                check=True, timeout=10,
+                                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+        output = result.stdout.strip().decode("ascii")
+        if not "check sums and md5 sums are ok" in output:
+            raise MyException(f"{basename} is not a valid Nvidia driver .run file")
+    except subprocess.CalledProcessError as error:
+        print(error.output.decode())
+        raise
+
     with tempfile.TemporaryDirectory() as temp:
-        os.chdir(temp)
-
         try:
-            print(f"Validating {basename}")
-
-            result = subprocess.run(['/bin/sh', filename, '--check'], shell=False,
-                                    check=True, timeout=10,
-                                    stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-            output = result.stdout.strip().decode("ascii")
-            if not "check sums and md5 sums are ok" in output:
-                raise MyException(f"{basename} is not a valid Nvidia driver .run file")
-        except subprocess.CalledProcessError as error:
-            print(error.output.decode())
+            # The .run file extracts its contents to a directory with the same
+            # name as the file itself, minus the .run.  The GSP-RM firmware
+            # images are in the 'firmware' subdirectory.
+            result = subprocess.run(['/bin/sh', filename, '--target-directory'], shell=False,
+                                    check=True, timeout=10, cwd=temp,
+                                    stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
+            target = result.stdout.strip().decode("ascii")
+            directory = f"{temp}/{target}"
+        except subprocess.SubprocessError as e:
+            print(e.output.decode())
             raise
 
         try:
@@ -588,23 +604,10 @@ def gsp_firmware_from_run(filename):
             # The -x parameter tells the installer to only extract the
             # contents and then exit.
             subprocess.run(['/bin/sh', filename, '-x'], shell=False,
-                           check=True, timeout=60,
+                           check=True, timeout=60, cwd=temp,
                            stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
         except subprocess.SubprocessError as error:
             print(error.output.decode())
-            raise
-
-        try:
-            # The .run file extracts its contents to a directory with the same
-            # name as the file itself, minus the .run.  The GSP-RM firmware
-            # images are in the 'firmware' subdirectory.
-            result = subprocess.run(['/bin/sh', filename, '--target-directory'], shell=False,
-                                    check=True, timeout=10,
-                                    stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
-            directory = result.stdout.strip().decode("ascii")
-            os.chdir(f"{directory}/firmware")
-        except subprocess.SubprocessError as e:
-            print(e.output.decode())
             raise
 
         tu10x_src = os.path.abspath(f"{directory}/firmware/gsp_tu10x.bin")
@@ -613,18 +616,21 @@ def gsp_firmware_from_run(filename):
         if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
             raise MyException(f"Firmware files are missing in {basename}")
 
-        shutil.copyfile('gsp_tu10x.bin', f"{outputpath}/nvidia/tu102/gsp/gsp-{version}.bin")
+        shutil.copyfile(tu10x_src, f"{outputpath}/nvidia/tu102/gsp/gsp-{version}.bin")
         print(f"Copied gsp_tu10x.bin to tu102/gsp/gsp-{version}.bin")
-        shutil.copyfile('gsp_ga10x.bin', f"{outputpath}/nvidia/ga102/gsp/gsp-{version}.bin")
+        shutil.copyfile(ga10x_src, f"{outputpath}/nvidia/ga102/gsp/gsp-{version}.bin")
         print(f"Copied gsp_ga10x.bin to ga102/gsp/gsp-{version}.bin")
+
+        ucodes_tu10x_src = f"{directory}/firmware/ucodes_tu10x.bin"
+        ucodes_ga10x_src = f"{directory}/firmware/ucodes_ga10x.bin"
 
         # Copy ucodes binaries if present (r610+).  Each ucodes.bin is paired
         # with the corresponding gsp.bin and loaded separately by the driver.
-        if os.path.exists('ucodes_tu10x.bin'):
-            shutil.copyfile('ucodes_tu10x.bin', f"{outputpath}/nvidia/tu102/gsp/ucodes-{version}.bin")
+        if os.path.exists(ucodes_tu10x_src):
+            shutil.copyfile(ucodes_tu10x_src, f"{outputpath}/nvidia/tu102/gsp/ucodes-{version}.bin")
             print(f"Copied ucodes_tu10x.bin to tu102/gsp/ucodes-{version}.bin")
-        if os.path.exists('ucodes_ga10x.bin'):
-            shutil.copyfile('ucodes_ga10x.bin', f"{outputpath}/nvidia/ga102/gsp/ucodes-{version}.bin")
+        if os.path.exists(ucodes_ga10x_src):
+            shutil.copyfile(ucodes_ga10x_src, f"{outputpath}/nvidia/ga102/gsp/ucodes-{version}.bin")
             print(f"Copied ucodes_ga10x.bin to ga102/gsp/ucodes-{version}.bin")
 
 
@@ -1013,13 +1019,18 @@ def main():
     gsp_bootloader("gb100", fuse)
     fmc("gb100", fmc_fuse)
 
-    # GB10B support was added in r580
+    # GB10B (Jetson Thor) support was added in r580
     if is_supported("gb10b"):
         gsp_bootloader("gb10b", fuse)
         fmc("gb10b", fmc_fuse)
 
     gsp_bootloader("gb202", fuse)
     fmc("gb202", fmc_fuse)
+
+    # GB20B (N1X) support was added in r580
+    if is_supported("gb20b"):
+        gsp_bootloader("gb20b", fuse)
+        fmc("gb20b", fmc_fuse)
 
     # GR100 support was added in r610
     if is_supported("gr100"):
