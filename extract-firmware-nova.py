@@ -190,13 +190,14 @@ def generic_bootloader(gpu):
 def gsp_bootloader(gpu: str, fuse = ""):
     global outputpath
 
+    name = f"gsp-bootloader-{gpu}-{fuse}"
+
     # Prepend an underscore if not empty
     if len(fuse) > 0:
         fuse = f"_{fuse}"
 
     GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmBoot_{GPU}.c"
-    name = f"gsp-bootloader-{gpu}{fuse}"
 
     tlv = TLV("gsp_bootloader", gpu)
 
@@ -216,12 +217,12 @@ def gsp_bootloader(gpu: str, fuse = ""):
     firmware = get_bytes(filename, f"kgspBinArchiveGspRmBoot_{GPU}", f"ucode_image{fuse}")
 
     # Validate a few of the offsets
-    if manifest_offset + manifest_size >= len(firmware):
-        raise MyException(f"{manifest_offset=}+{manifest_size=} is too large for {name}")
-    if monitor_data_offset + monitor_data_size >= len(firmware):
-        raise MyException(f"{monitor_data_offset=}+{monitor_data_size=} is too large for {name}")
-    if monitor_code_offset + monitor_code_size >= len(firmware):
-        raise MyException(f"{monitor_code_size=}+{monitor_code_size=} is too large for {name}")
+    if manifest_offset + manifest_size > len(firmware):
+        raise MyException(f"{manifest_offset=} + {manifest_size=} is too large for {name} (size={len(firmware)})")
+    if monitor_data_offset + monitor_data_size > len(firmware):
+        raise MyException(f"{monitor_data_offset=} + {monitor_data_size=} is too large for {name} (size={len(firmware)})")
+    if monitor_code_offset + monitor_code_size > len(firmware):
+        raise MyException(f"{monitor_code_offset=} + {monitor_code_size=} is too large for {name} (size={len(firmware)})")
 
     if manifest_offset % 256 != 0:
         raise MyException(f"{manifest_offset=} is not 256-byte aligned")
@@ -413,12 +414,21 @@ def fmc(gpu: str, fuse: str):
     tlv = TLV("fmc", gpu)
 
     ucode_hash = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_hash")
+    if len(ucode_hash) != 48:
+        raise MyException(f"FSP hash length for {gpu} should be 48 but is {len(ucode_hash)}")
     tlv.add("HASH", ucode_hash)
 
+    # Some GPUs use RSAPSS3K (384-byte sig/pkey), and others use ECDSAP384
+    # (97/97-byte sig).  Just make some simple range checks that Nova expects.
+
     ucode_sig = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_sig")
+    if len(ucode_sig) < 96 or len(ucode_sig) > 384:
+        raise MyException(f"FSP signature for {gpu} has an invalid length of {len(ucode_sig)}")
     tlv.add("SIGS", ucode_sig)
 
     ucode_pkey = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_pkey")
+    if len(ucode_pkey) < 97 or len(ucode_pkey) > 384:
+        raise MyException(f"FSP public key for {gpu} has an invalid length of {len(ucode_pkey)}")
     tlv.add("PKEY", ucode_pkey)
 
     ucode_image = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_image")
