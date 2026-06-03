@@ -554,6 +554,8 @@ def gsp_firmware_from_run(filename):
         gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
         if os.path.isdir(f"{outputpath}/nvidia/gb10b/gsp"):
             gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
+        if os.path.isdir(f"{outputpath}/nvidia/gb20b/gsp"):
+            gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
         if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
             gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
@@ -594,6 +596,8 @@ def gsp_firmware_from_build(gsp_build_dir):
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
     if os.path.isdir(f"{outputpath}/nvidia/gb10b/gsp"):
         gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
+    if os.path.isdir(f"{outputpath}/nvidia/gb20b/gsp"):
+        gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
     if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
         gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
@@ -886,13 +890,18 @@ def main():
     gsp_bootloader("gb100", fuse)
     fmc("gb100", fmc_fuse)
 
-    # GB10B support was added in r580
+    # GB10B (Jetson Thor) support was added in r580
     if is_supported("gb10b"):
         gsp_bootloader("gb10b", fuse)
         fmc("gb10b", fmc_fuse)
 
     gsp_bootloader("gb202", fuse)
     fmc("gb202", fmc_fuse)
+
+    # GB20B (N1X) support was added in r580
+    if is_supported("gb20b"):
+        gsp_bootloader("gb20b", fuse)
+        fmc("gb20b", fmc_fuse)
 
     # GR100 support was added in r610
     if is_supported("gr100"):
