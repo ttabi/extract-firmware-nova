@@ -268,14 +268,15 @@ def generic_bootloader(gpu):
     tlv.write()
 
 # GSP bootloader
-def gsp_bootloader(gpu: str, fuse = ""):
+def gsp_bootloader(gpu: str, debug = None):
     global outputpath
 
-    name = f"gsp-bootloader-{gpu}-{fuse}"
-
-    # Prepend an underscore if not empty
-    if len(fuse) > 0:
-        fuse = f"_{fuse}"
+    if debug is not None:
+        fuse = "_dbg" if debug else "_prod"
+        name = f"gsp-bootloader-{gpu}-{'dbg' if debug else 'prod'}"
+    else:
+        fuse = ""
+        name = f"gsp-bootloader-{gpu}"
 
     GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmBoot_{GPU}.c"
@@ -321,9 +322,10 @@ def gsp_bootloader(gpu: str, fuse = ""):
     tlv.write()
 
 # GSP Booter load and unload
-def booter(gpu, load, sigsize, fuse = "prod"):
+def booter(gpu, load, sigsize, debug = False):
     global outputpath
 
+    fuse = "dbg" if debug else "prod"
     GPU = gpu.upper()
     LOAD = load.capitalize()
     name = f"booter-{load}-{gpu}-{fuse}"
@@ -402,9 +404,10 @@ def booter(gpu, load, sigsize, fuse = "prod"):
     tlv.write()
 
 # GPU memory scrubber, needed for some GPUs and configurations
-def scrubber(gpu, sigsize, fuse = "prod"):
+def scrubber(gpu, sigsize, debug = False):
     global outputpath
 
+    fuse = "dbg" if debug else "prod"
     # Unfortunately, RM breaks convention with the scrubber image and labels
     # the files and arrays with AD10X instead of AD102.
     GPUX = f"{gpu[:-1].upper()}X"
@@ -486,9 +489,10 @@ def scrubber(gpu, sigsize, fuse = "prod"):
 # Unlike the other images, FMC firmware and its metadata are encapsulated in
 # an ELF image.  FMC metadata is simpler than the other firmware types, as it
 # comprises just three binary blobs.
-def fmc(gpu: str, fuse: str):
+def fmc(gpu: str, debug = False):
     global outputpath
 
+    fuse = "Debug" if debug else "Prod"
     GPU=gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}.c"
 
@@ -882,63 +886,55 @@ def main():
 
     os.makedirs(f"{outputpath}/nvidia", exist_ok = True)
 
-    # TU10x and GA100 do not have debug-fused versions of the GSP bootloader
-    if args.debug_fused:
-        print("Generating images for debug-fused GPUs")
-        fuse = "dbg"
-        fmc_fuse = "Debug"
-    else:
-        fuse = "prod"
-        fmc_fuse = "Prod"
-
     # The generic bootloader is only defined for TU102 but is used
     # by all TU1xx and GA100.
     generic_bootloader("tu102")
 
-    booter("tu102", "load", 16, fuse)
-    booter("tu102", "unload", 16, fuse)
+    booter("tu102", "load", 16, args.debug_fused)
+    booter("tu102", "unload", 16, args.debug_fused)
+    # TU10x and GA100 do not have debug-fused versions of the GSP bootloader
     gsp_bootloader("tu102")
 
-    booter("tu116", "load", 16, fuse)
-    booter("tu116", "unload", 16, fuse)
+    booter("tu116", "load", 16, args.debug_fused)
+    booter("tu116", "unload", 16, args.debug_fused)
     # TU11x uses the same bootloader as TU10x
 
-    booter("ga100", "load", 384, fuse)
-    booter("ga100", "unload", 384, fuse)
+    booter("ga100", "load", 384, args.debug_fused)
+    booter("ga100", "unload", 384, args.debug_fused)
     gsp_bootloader("ga100")
 
-    booter("ga102", "load", 384, fuse)
-    booter("ga102", "unload", 384, fuse)
-    gsp_bootloader("ga102", fuse)
+    booter("ga102", "load", 384, args.debug_fused)
+    booter("ga102", "unload", 384, args.debug_fused)
+    gsp_bootloader("ga102", args.debug_fused)
 
-    booter("ad102", "load", 384, fuse)
-    booter("ad102", "unload", 384, fuse)
-    gsp_bootloader("ad102", fuse)
-#    scrubber("ad102", 384, fuse) # Not currently used by Nouveau
+    booter("ad102", "load", 384, args.debug_fused)
+    booter("ad102", "unload", 384, args.debug_fused)
+    gsp_bootloader("ad102", args.debug_fused)
+#    scrubber("ad102", 384, args.debug_fused) # Not currently used by Nova
 
-    gsp_bootloader("gh100", fuse)
-    fmc("gh100", fmc_fuse)
+    gsp_bootloader("gh100", args.debug_fused)
+    fmc("gh100", args.debug_fused)
 
-    gsp_bootloader("gb100", fuse)
-    fmc("gb100", fmc_fuse)
+    gsp_bootloader("gb100", args.debug_fused)
+    fmc("gb100", args.debug_fused)
 
     # GB10B (Jetson Thor) support was added in r580
     if is_supported("gb10b"):
-        gsp_bootloader("gb10b", fuse)
-        fmc("gb10b", fmc_fuse)
+        gsp_bootloader("gb10b", args.debug_fused)
+        fmc("gb10b", args.debug_fused)
 
-    gsp_bootloader("gb202", fuse)
-    fmc("gb202", fmc_fuse)
+    gsp_bootloader("gb202", args.debug_fused)
+    fmc("gb202", args.debug_fused)
 
     # GB20B (N1X) support was added in r580
     if is_supported("gb20b"):
-        gsp_bootloader("gb20b", fuse)
-        fmc("gb20b", fmc_fuse)
+        gsp_bootloader("gb20b", args.debug_fused)
+        fmc("gb20b", args.debug_fused)
 
     # GR100 support was added in r610
     if is_supported("gr100"):
-        gsp_bootloader("gr100", fuse)
-        fmc("gr100", fmc_fuse)
+        gsp_bootloader("gr100", args.debug_fused)
+        fmc("gr100", args.debug_fused)
 
     gsp_origin = None
 
