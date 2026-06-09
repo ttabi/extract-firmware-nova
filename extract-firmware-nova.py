@@ -644,7 +644,6 @@ def gsp_firmware_from_build(gsp_build_dir):
 # what the WHENCE file in linux-firmware does.
 def symlinks():
     global outputpath
-    global version
     from pathlib import Path
 
     print(f"Creating symlinks in {outputpath}/nvidia")
@@ -674,11 +673,11 @@ def symlinks():
         symlink('ad102', d, target_is_directory = True)
 
     # TU11x uses the same GSP bootloader as TU10x
-    symlink(f"../../tu102/gsp/gen_bootloader.tlv", f"tu116/gsp/gen_bootloader.tlv")
+    symlink("../../tu102/gsp/gen_bootloader.tlv", "tu116/gsp/gen_bootloader.tlv")
 
     # TU11x and GA100 use the same generic bootloader as TU10x
-    symlink(f"../../tu102/gsp/gen_bootloader.tlv", f"tu116/gsp/gen_bootloader.tlv")
-    symlink(f"../../tu102/gsp/gen_bootloader.tlv", f"ga100/gsp/gen_bootloader.tlv")
+    symlink("../../tu102/gsp/gen_bootloader.tlv", "tu116/gsp/gen_bootloader.tlv")
+    symlink("../../tu102/gsp/gen_bootloader.tlv", "ga100/gsp/gen_bootloader.tlv")
 
     # Blackwell is only supported with GSP, so we can symlink the top-level directories
     # instead of just the gsp/ subdirectories.
@@ -705,14 +704,10 @@ def symlinks():
         symlink("../../tu102/gsp/ucodes.tlv", "tu116/gsp/ucodes.tlv")
         symlink("../../tu102/gsp/ucodes.tlv", "ga100/gsp/ucodes.tlv")
     if os.path.exists("ga102/gsp/ucodes.bin"):
-        symlink("../../ga102/gsp/ucodes.bin", "ad102/gsp/ucodes.bin")
-        symlink("../../ga102/gsp/ucodes.bin", "gh100/gsp/ucodes.bin")
-        symlink("../../ga102/gsp/ucodes.bin", "gb100/gsp/ucodes.bin")
-        symlink("../../ga102/gsp/ucodes.bin", "gb202/gsp/ucodes.bin")
-        symlink("../../ga102/gsp/ucodes.tlv", "ad102/gsp/ucodes.tlv")
-        symlink("../../ga102/gsp/ucodes.tlv", "gh100/gsp/ucodes.tlv")
-        symlink("../../ga102/gsp/ucodes.tlv", "gb100/gsp/ucodes.tlv")
-        symlink("../../ga102/gsp/ucodes.tlv", "gb202/gsp/ucodes.tlv")
+        paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/ucodes.bin")]
+        for p in paths:
+            symlink("../../ga102/gsp/ucodes.bin", f"{p}/gsp/ucodes.bin")
+            symlink("../../ga102/gsp/ucodes.tlv", f"{p}/gsp/ucodes.tlv")
 
 # Create a text file that can be inserted as-is to the WHENCE file of the
 # linux-firmware git repository.  We must also maintain compatibility with
