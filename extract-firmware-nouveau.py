@@ -638,6 +638,7 @@ def gsp_firmware_from_build(gsp_build_dir):
 def symlinks():
     global outputpath
     global version
+    from pathlib import Path
 
     print(f"Creating symlinks in {outputpath}/nvidia")
     os.chdir(f"{outputpath}/nvidia")
@@ -683,6 +684,13 @@ def symlinks():
     # Symlink the GSP-RM image
     symlink(f"../../tu102/gsp/gsp-{version}.bin", f"tu116/gsp/gsp-{version}.bin")
     symlink(f"../../tu102/gsp/gsp-{version}.bin", f"ga100/gsp/gsp-{version}.bin")
+
+    # Every other path
+    root = Path(".")
+    paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/gsp-{version}.bin")]
+    for p in paths:
+        symlink(f"../../ga102/gsp/gsp-{version}.bin", f"{p}/gsp/gsp-{version}.bin")
+
     symlink(f"../../ga102/gsp/gsp-{version}.bin", f"ad102/gsp/gsp-{version}.bin")
     symlink(f"../../ga102/gsp/gsp-{version}.bin", f"gh100/gsp/gsp-{version}.bin")
     symlink(f"../../ga102/gsp/gsp-{version}.bin", f"gb100/gsp/gsp-{version}.bin")
@@ -693,10 +701,9 @@ def symlinks():
         symlink(f"../../tu102/gsp/ucodes-{version}.bin", f"tu116/gsp/ucodes-{version}.bin")
         symlink(f"../../tu102/gsp/ucodes-{version}.bin", f"ga100/gsp/ucodes-{version}.bin")
     if os.path.exists(f"ga102/gsp/ucodes-{version}.bin"):
-        symlink(f"../../ga102/gsp/ucodes-{version}.bin", f"ad102/gsp/ucodes-{version}.bin")
-        symlink(f"../../ga102/gsp/ucodes-{version}.bin", f"gh100/gsp/ucodes-{version}.bin")
-        symlink(f"../../ga102/gsp/ucodes-{version}.bin", f"gb100/gsp/ucodes-{version}.bin")
-        symlink(f"../../ga102/gsp/ucodes-{version}.bin", f"gb202/gsp/ucodes-{version}.bin")
+        paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/ucodes-{version}.bin")]
+        for p in paths:
+            symlink(f"../../ga102/gsp/ucodes-{version}.bin", f"{p}/gsp/ucodes-{version}.bin")
 
 # Create a text file that can be inserted as-is to the WHENCE file of the
 # linux-firmware git repository.  Note that existing firmware versions in
