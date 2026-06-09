@@ -247,3 +247,54 @@ def symlink(dest, source, target_is_directory = False):
             os.symlink(dest, source, target_is_directory = target_is_directory)
         else:
             raise e
+
+# Verify the .run file and extract its contents to the given temp directory
+def extract_run_file(runfile, tempdir):
+    import subprocess
+
+    basename = os.path.basename(runfile)
+
+    print(f"Validating {basename}")
+    try:
+        result = subprocess.run(['/bin/sh', runfile, '--check'], shell=False,
+                                check=True, timeout=10,
+                                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+        output = result.stdout.strip().decode("ascii")
+        if not "check sums and md5 sums are ok" in output:
+            raise MyException(f"{basename} is not a valid Nvidia driver .run file")
+    except subprocess.CalledProcessError as error:
+        print(error.output.decode())
+        raise
+
+    try:
+        # The .run file extracts its contents to a directory with the same
+        # name as the file itself, minus the .run.  The GSP-RM firmware
+        # images are in the 'firmware' subdirectory.
+        result = subprocess.run(['/bin/sh', runfile, '--target-directory'], shell=False,
+                                check=True, timeout=10, cwd=tempdir ,
+                                stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
+        target = result.stdout.strip().decode("ascii")
+        directory = f"{tempdir}/{target}/firmware"
+    except subprocess.SubprocessError as e:
+        print(e.output.decode())
+        raise
+
+    try:
+        print(f"Extracting {basename} to {tempdir}")
+        # The -x parameter tells the installer to only extract the
+        # contents and then exit.
+        subprocess.run(['/bin/sh', runfile, '-x'], shell=False,
+                       check=True, timeout=60, cwd=tempdir,
+                       stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    except subprocess.SubprocessError as error:
+        print(error.output.decode())
+        raise
+
+    # As a final verification, make sure the gsp.bin files are there
+    tu10x_src = f"{directory}/gsp_tu10x.bin"
+    ga10x_src = f"{directory}/gsp_ga10x.bin"
+
+    if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
+        raise MyException(f"Firmware files are missing in {basename}")
+
+    return directory

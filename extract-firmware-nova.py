@@ -40,6 +40,7 @@ from extract_firmware_common import (
     get_bytes,
     is_supported,
     symlink,
+    extract_run_file,
 )
 
 # -------------------------------------------------------------------
@@ -544,89 +545,47 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
 def ucodes(gsp_source):
     global outputpath
 
-    ucodes_tu10x_src = os.path.join(gsp_source, "ucodes_tu10x.bin")
-    ucodes_ga10x_src = os.path.join(gsp_source, "ucodes_ga10x.bin")
+    tu10x_ucodes_src = os.path.join(gsp_source, "ucodes_tu10x.bin")
+    ga10x_ucodes_src = os.path.join(gsp_source, "ucodes_ga10x.bin")
 
-    if os.path.exists(ucodes_tu10x_src):
+    if os.path.exists(tu10x_ucodes_src):
         tlv = TLV("ucodes", "tu102")
-        tlv.add("SIZE", os.path.getsize(ucodes_tu10x_src))
+        tlv.add("SIZE", os.path.getsize(tu10x_ucodes_src))
         tlv.add("FILE", "ucodes.bin")
         tlv.write()
 
-        shutil.copyfile(ucodes_tu10x_src, f"{outputpath}/nvidia/tu102/gsp/ucodes.bin")
+        shutil.copyfile(tu10x_ucodes_src, f"{outputpath}/nvidia/tu102/gsp/ucodes.bin")
         print(f"Copied ucodes_tu10x.bin to nvidia/tu102/gsp/ucodes.bin")
 
-    if os.path.exists(ucodes_ga10x_src):
+    if os.path.exists(ga10x_ucodes_src):
         tlv = TLV("ucodes", "ga102")
-        tlv.add("SIZE", os.path.getsize(ucodes_ga10x_src))
+        tlv.add("SIZE", os.path.getsize(ga10x_ucodes_src))
         tlv.add("FILE", "ucodes.bin")
         tlv.write()
 
-        shutil.copyfile(ucodes_ga10x_src, f"{outputpath}/nvidia/ga102/gsp/ucodes.bin")
+        shutil.copyfile(ga10x_ucodes_src, f"{outputpath}/nvidia/ga102/gsp/ucodes.bin")
         print(f"Copied ucodes_ga10x.bin to nvidia/ga102/gsp/ucodes.bin")
 
 # Extract the GSP-RM firmware from the .run file and copy the binaries
 # to the target directory.
 def gsp_firmware_from_run(filename):
     global outputpath
-    global version
-
-    import subprocess
-
-    basename = os.path.basename(filename)
-
-    print(f"Validating {basename}")
-    try:
-        result = subprocess.run(['/bin/sh', filename, '--check'], shell=False,
-                                check=True, timeout=10,
-                                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-        output = result.stdout.strip().decode("ascii")
-        if not "check sums and md5 sums are ok" in output:
-            raise MyException(f"{basename} is not a valid Nvidia driver .run file")
-    except subprocess.CalledProcessError as error:
-        print(error.output.decode())
-        raise
 
     with tempfile.TemporaryDirectory() as temp:
-        try:
-            # The .run file extracts its contents to a directory with the same
-            # name as the file itself, minus the .run.  The GSP-RM firmware
-            # images are in the 'firmware' subdirectory.
-            result = subprocess.run(['/bin/sh', filename, '--target-directory'], shell=False,
-                                    check=True, timeout=10, cwd=temp,
-                                    stdout = subprocess.PIPE, stderr = subprocess.DEVNULL)
-            target = result.stdout.strip().decode("ascii")
-            directory = f"{temp}/{target}"
-        except subprocess.SubprocessError as e:
-            print(e.output.decode())
-            raise
+        directory = extract_run_file(filename, temp)
 
-        try:
-            print(f"Extracting {basename} to {temp}")
-            # The -x parameter tells the installer to only extract the
-            # contents and then exit.
-            subprocess.run(['/bin/sh', filename, '-x'], shell=False,
-                           check=True, timeout=60, cwd=temp,
-                           stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-        except subprocess.SubprocessError as error:
-            print(error.output.decode())
-            raise
+        tu10x_gsp_src = f"{directory}/gsp_tu10x.bin"
+        ga10x_gsp_src = f"{directory}/gsp_ga10x.bin"
 
-        tu10x_src = os.path.abspath(f"{directory}/firmware/gsp_tu10x.bin")
-        ga10x_src = os.path.abspath(f"{directory}/firmware/gsp_ga10x.bin")
+        fwimage_from_gsp_elf(tu10x_gsp_src, "tu102")
+        fwimage_from_gsp_elf(ga10x_gsp_src, "ga102")
 
-        if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
-            raise MyException(f"Firmware files are missing in {basename}")
-
-        fwimage_from_gsp_elf(tu10x_src, "tu102")
-        fwimage_from_gsp_elf(ga10x_src, "ga102")
-
-        elf = ELF64(tu10x_src)
+        elf = ELF64(tu10x_gsp_src)
         gsp_tlv_from_elf(elf, ".fwsignature_tu10x", "tu102")
         gsp_tlv_from_elf(elf, ".fwsignature_tu11x", "tu116")
         gsp_tlv_from_elf(elf, ".fwsignature_ga100", "ga100")
 
-        elf = ELF64(ga10x_src)
+        elf = ELF64(ga10x_gsp_src)
         gsp_tlv_from_elf(elf, ".fwsignature_ga10x", "ga102")
         gsp_tlv_from_elf(elf, ".fwsignature_ad10x", "ad102")
         gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
@@ -639,14 +598,12 @@ def gsp_firmware_from_run(filename):
         if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
             gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
-        ucodes(f"{directory}/firmware/")
+        ucodes(directory)
 
 # Extract GSP firmware from a local build output directory.
 # This is an NVIDIA-internal feature for use with internal build systems.
 def gsp_firmware_from_build(gsp_build_dir):
     global outputpath
-
-    print(f"{gsp_build_dir=}")
 
     if not os.path.isdir(gsp_build_dir):
         raise MyException(f"GSP build directory does not exist: {gsp_build_dir}")
