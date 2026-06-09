@@ -178,10 +178,10 @@ def booter(gpu, load, sigsize, fuse = "prod"):
         firmware_size = len(firmware)
 
         # Query the number of signatures.  This should be a 4-byte array (32-bit little-endian integer)
-        bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "num_sigs")
-        if len(bytes) != 4:
-            raise MyException(f"num_sigs array for {name} is wrong size of {len(bytes)}")
-        num_sigs = struct.unpack("<I", bytes)[0]
+        raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "num_sigs")
+        if len(raw) != 4:
+            raise MyException(f"num_sigs array for {name} is wrong size of {len(raw)}")
+        num_sigs = struct.unpack("<I", raw)[0]
         if num_sigs < 1 or num_sigs > 15:
             raise MyException(f"out of range number of signatures ({num_sigs}) for {name}")
 
@@ -216,23 +216,23 @@ def booter(gpu, load, sigsize, fuse = "prod"):
         f.write(signatures)
 
         # Extract the patch location
-        bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_loc")
-        if len(bytes) != 4:
-            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(bytes)} bytes.")
-        patchloc = struct.unpack("<I", bytes)[0]
+        raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_loc")
+        if len(raw) != 4:
+            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(raw)} bytes.")
+        patchloc = struct.unpack("<I", raw)[0]
 
         # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
         # so if it's ever non-zero, something has changed.
-        bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_sig")
-        if len(bytes) != 4:
-            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(bytes)} bytes.")
-        patchsig = struct.unpack("<I", bytes)[0]
+        raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_sig")
+        if len(raw) != 4:
+            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(raw)} bytes.")
+        patchsig = struct.unpack("<I", raw)[0]
         if patchsig != 0:
             raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
 
         # Extract the patch meta variables
-        bytes = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_meta")
-        fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", bytes)
+        raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_meta")
+        fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", raw)
 
         # Fourth, patch_loc[], patch_sig[], fuse_ver, engine_id, ucode_id, and num_sigs
         f.write(struct.pack("<6L", patchloc, patchsig, fuse_ver, engine_id, ucode_id, num_sigs))
@@ -278,10 +278,10 @@ def scrubber(gpu, sigsize, fuse = "prod"):
         firmware_size = len(firmware)
 
         # Query the number of signatures.  This should be a 4-byte array (32-bit little-endian integer)
-        bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "num_sigs")
-        if len(bytes) != 4:
-            raise MyException(f"num_sigs array for {name} is wrong size of {len(bytes)}")
-        num_sigs = struct.unpack("<I", bytes)[0]
+        raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "num_sigs")
+        if len(raw) != 4:
+            raise MyException(f"num_sigs array for {name} is wrong size of {len(raw)}")
+        num_sigs = struct.unpack("<I", raw)[0]
         if num_sigs < 1 or num_sigs > 15:
             raise MyException(f"out of range number of signatures ({num_sigs}) for {name}")
 
@@ -312,23 +312,23 @@ def scrubber(gpu, sigsize, fuse = "prod"):
         f.write(signatures)
 
         # Extract the patch location
-        bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_loc")
-        if len(bytes) != 4:
-            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(bytes)} bytes.")
-        patchloc = struct.unpack("<I", bytes)[0]
+        raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_loc")
+        if len(raw) != 4:
+            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(raw)} bytes.")
+        patchloc = struct.unpack("<I", raw)[0]
 
         # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
         # so if it's ever non-zero, something has changed.
-        bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_sig")
-        if len(bytes) != 4:
-            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(bytes)} bytes.")
-        patchsig = struct.unpack("<I", bytes)[0]
+        raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_sig")
+        if len(raw) != 4:
+            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(raw)} bytes.")
+        patchsig = struct.unpack("<I", raw)[0]
         if patchsig != 0:
             raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
 
         # Extract the patch meta variables
-        bytes = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_meta")
-        fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", bytes)
+        raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_meta")
+        fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", raw)
 
         # Fourth, patch_loc[], patch_sig[], fuse_ver, engine_id, ucode_id, and num_sigs
         f.write(struct.pack("<6L", patchloc, patchsig, fuse_ver, engine_id, ucode_id, num_sigs))
@@ -942,7 +942,7 @@ def main():
 
     print(f"Generating files for version {version}")
 
-    outputpath = args.output;
+    outputpath = args.output
     print(f"Writing files to {outputpath}")
 
     os.makedirs(f"{outputpath}/nvidia", exist_ok = True)
