@@ -236,8 +236,6 @@ def parse_hal_field(filename: str, variable: str) -> dict:
 # Then this generic bootloader runs on the SEC2 core, in order to restart the GSP
 # core to run GSP-RM on it.  This is only used on TU10x and GA100 GPUs.
 def generic_bootloader(gpu):
-    global outputpath
-
     GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_{GPU}.c"
 
@@ -267,8 +265,6 @@ def generic_bootloader(gpu):
 
 # GSP bootloader
 def gsp_bootloader(gpu: str, debug = None):
-    global outputpath
-
     if debug is not None:
         fuse = "_dbg" if debug else "_prod"
         name = f"gsp-bootloader-{gpu}-{'dbg' if debug else 'prod'}"
@@ -321,8 +317,6 @@ def gsp_bootloader(gpu: str, debug = None):
 
 # GSP Booter load and unload
 def booter(gpu, load, sigsize, debug = False):
-    global outputpath
-
     fuse = "dbg" if debug else "prod"
     GPU = gpu.upper()
     LOAD = load.capitalize()
@@ -403,8 +397,6 @@ def booter(gpu, load, sigsize, debug = False):
 
 # GPU memory scrubber, needed for some GPUs and configurations
 def scrubber(gpu, sigsize, debug = False):
-    global outputpath
-
     fuse = "dbg" if debug else "prod"
     # Unfortunately, RM breaks convention with the scrubber image and labels
     # the files and arrays with AD10X instead of AD102.
@@ -488,8 +480,6 @@ def scrubber(gpu, sigsize, debug = False):
 # an ELF image.  FMC metadata is simpler than the other firmware types, as it
 # comprises just three binary blobs.
 def fmc(gpu: str, debug = False):
-    global outputpath
-
     fuse = "Debug" if debug else "Prod"
     GPU=gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}.c"
