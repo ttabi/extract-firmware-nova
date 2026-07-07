@@ -971,7 +971,15 @@ def main():
         if re.search('^http[s]://', args.driver):
             with tempfile.NamedTemporaryFile(prefix = f'NVIDIA-Linux-x86_64-{version}-', suffix = '.run') as f:
                 print(f"Downloading driver from {args.driver} as {f.name}")
-                urllib.request.urlretrieve(args.driver, f.name)
+                try:
+                    urllib.request.urlretrieve(args.driver, f.name)
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        raise MyException(f"Driver version {version} not found at download.nvidia.com.")
+                    raise MyException(f"Failed to download {args.driver}: HTTP {e.code} {e.reason}")
+                except urllib.error.URLError as e:
+                    raise MyException(f"Failed to download {args.driver}: {e.reason}")
+
                 gsp_firmware_from_run(f.name)
             del f
         elif os.path.isdir(args.driver):
