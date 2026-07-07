@@ -639,67 +639,98 @@ def symlinks():
     from pathlib import Path
 
     print(f"Creating symlinks in {outputpath}/nvidia")
+    prev_cwd = os.getcwd()
     os.chdir(f"{outputpath}/nvidia")
 
-    for d in ['tu116', 'ga100', 'ad102']:
-        os.makedirs(d, exist_ok = True)
+    try:
+        for d in ['tu116', 'ga100', 'ad102']:
+            os.makedirs(d, exist_ok = True)
 
-    for d in ['tu104', 'tu106']:
-        os.makedirs(d, exist_ok = True)
-        symlink('../tu102/gsp', f"{d}/gsp", target_is_directory = True)
+        # Turing / GA100
+        for d in ['tu104', 'tu106', 'tu116', 'tu117', 'ga100']:
+            os.makedirs(d, exist_ok = True)
 
-    os.makedirs('tu117', exist_ok = True)
-    symlink('../tu116/gsp', 'tu117/gsp', target_is_directory = True)
+        for d in ['tu104', 'tu106']:
+            symlink('../tu102/gsp', f"{d}/gsp", target_is_directory = True)
 
-    for d in ['ga103', 'ga104', 'ga106', 'ga107']:
-        os.makedirs(d, exist_ok = True)
-        symlink('../ga102/gsp', f"{d}/gsp", target_is_directory = True)
+        symlink('../tu116/gsp', 'tu117/gsp', target_is_directory = True)
 
-    for d in ['ad103', 'ad104', 'ad106', 'ad107']:
-        # Some older versions of /lib/firmware had symlinks from ad10x/gsp to ad102/gsp,
-        # even though there were no other directories in ad10x.  Delete the existing
-        # ad10x directory so that we can replace it with a symlink.
-        if os.path.islink(f"{d}/gsp"):
-            os.remove(f"{d}/gsp")
-            os.rmdir(d)
-        symlink('ad102', d, target_is_directory = True)
+        # TU11x uses the same GSP bootloader as TU10x
+        symlink("../../tu102/gsp/gsp_bootloader.tlv", "tu116/gsp/gsp_bootloader.tlv")
 
-    # TU11x uses the same GSP bootloader as TU10x
-    symlink("../../tu102/gsp/gsp_bootloader.tlv", "tu116/gsp/gsp_bootloader.tlv")
+        # TU11x and GA100 use the same generic bootloader as TU10x
+        symlink("../../tu102/gsp/gen_bootloader.tlv", "tu116/gsp/gen_bootloader.tlv")
+        symlink("../../tu102/gsp/gen_bootloader.tlv", "ga100/gsp/gen_bootloader.tlv")
 
-    # TU11x and GA100 use the same generic bootloader as TU10x
-    symlink("../../tu102/gsp/gen_bootloader.tlv", "tu116/gsp/gen_bootloader.tlv")
-    symlink("../../tu102/gsp/gen_bootloader.tlv", "ga100/gsp/gen_bootloader.tlv")
+        # Symlink the GSP-RM image for TU11x and GA100
+        symlink("../../tu102/gsp/gsp.bin", "tu116/gsp/gsp.bin")
+        symlink("../../tu102/gsp/gsp.bin", "ga100/gsp/gsp.bin")
 
-    # Blackwell is only supported with GSP, so we can symlink the top-level directories
-    # instead of just the gsp/ subdirectories.
-    for d in ['gb102']:
-        symlink('gb100', d, target_is_directory = True)
+        # Ampere
+        for d in ['ga103', 'ga104', 'ga106', 'ga107']:
+            os.makedirs(d, exist_ok = True)
 
-    for d in ['gb203', 'gb205', 'gb206', 'gb207']:
-        symlink('gb202', d, target_is_directory = True)
+        for d in ['ga103', 'ga104', 'ga106', 'ga107']:
+            symlink('../ga102/gsp', f"{d}/gsp", target_is_directory = True)
 
-    # Symlink the GSP-RM image
-    symlink("../../tu102/gsp/gsp.bin", "tu116/gsp/gsp.bin")
-    symlink("../../tu102/gsp/gsp.bin", "ga100/gsp/gsp.bin")
+        # Ada
+        for d in ['ad103', 'ad104', 'ad106', 'ad107']:
+            # Some older versions of /lib/firmware had symlinks from ad10x/gsp to ad102/gsp,
+            # even though there were no other directories in ad10x.  Delete the existing
+            # ad10x directory so that we can replace it with a symlink.
+            if os.path.islink(f"{d}/gsp"):
+                os.remove(f"{d}/gsp")
+                os.rmdir(d)
+            symlink('ad102', d, target_is_directory = True)
 
-    # Every other path
-    root = Path(f"{outputpath}/nvidia")
-    paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/gsp.bin")]
-    for p in paths:
-        symlink("../../ga102/gsp/gsp.bin", f"{p}/gsp/gsp.bin")
+        # Blackwell
+        for d in ['gb102']:
+            symlink('gb100', d, target_is_directory = True)
 
-    # Symlink the ucodes binaries
-    if os.path.exists("tu102/gsp/ucodes.bin"):
-        symlink("../../tu102/gsp/ucodes.bin", "tu116/gsp/ucodes.bin")
-        symlink("../../tu102/gsp/ucodes.bin", "ga100/gsp/ucodes.bin")
-        symlink("../../tu102/gsp/ucodes.tlv", "tu116/gsp/ucodes.tlv")
-        symlink("../../tu102/gsp/ucodes.tlv", "ga100/gsp/ucodes.tlv")
-    if os.path.exists("ga102/gsp/ucodes.bin"):
-        paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/ucodes.bin")]
+        for d in ['gb203', 'gb205', 'gb206', 'gb207']:
+            symlink('gb202', d, target_is_directory = True)
+
+        # Handle gsp.bin and gsp.tlv for all remaining paths
+        root = Path(".")
+        paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/gsp.bin")]
         for p in paths:
-            symlink("../../ga102/gsp/ucodes.bin", f"{p}/gsp/ucodes.bin")
-            symlink("../../ga102/gsp/ucodes.tlv", f"{p}/gsp/ucodes.tlv")
+            symlink("../../ga102/gsp/gsp.bin", f"{p}/gsp/gsp.bin")
+
+        # Symlink the ucodes binaries, if they exist.
+        if os.path.exists("tu102/gsp/ucodes.bin"):
+            symlink("../../tu102/gsp/ucodes.bin", "tu116/gsp/ucodes.bin")
+            symlink("../../tu102/gsp/ucodes.bin", "ga100/gsp/ucodes.bin")
+            symlink("../../tu102/gsp/ucodes.tlv", "tu116/gsp/ucodes.tlv")
+            symlink("../../tu102/gsp/ucodes.tlv", "ga100/gsp/ucodes.tlv")
+
+        if os.path.exists("ga102/gsp/ucodes.bin"):
+            paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/ucodes.bin") and p.name != "ga102"]
+            for p in paths:
+                symlink("../../ga102/gsp/ucodes.bin", f"{p}/gsp/ucodes.bin")
+                symlink("../../ga102/gsp/ucodes.tlv", f"{p}/gsp/ucodes.tlv")
+
+        # Verify that we have a gsp.bin and gsp.tlv for every GPU
+        for dir in [entry.name for entry in os.scandir(".") if entry.is_dir()]:
+            if not os.path.exists(f"{dir}/gsp/gsp.bin"):
+                print(f"Warning: {dir}/gsp/gsp.bin is missing")
+            if not os.path.exists(f"{dir}/gsp/gsp.tlv"):
+                print(f"Warning: {dir}/gsp/gsp.tlv is missing")
+            if os.path.islink(f"{dir}/gsp/gsp.tlv"):
+                print(f"Warning: {dir}/gsp/gsp.tlv should not be a symlink")
+            if not os.path.exists(f"{dir}/gsp/gsp_bootloader.tlv"):
+                print(f"Warning: {dir}/gsp/gsp.bin is missing")
+
+            has_load = os.path.exists(f"{dir}/gsp/booter_load.tlv");
+            has_unload = os.path.exists(f"{dir}/gsp/booter_unload.tlv");
+            has_fmc = os.path.exists(f"{dir}/gsp/fmc.tlv");
+            if has_load != has_unload:
+                print(f"Warning: {dir}/gsp/ booter_load requires booter_unload, and vice versa")
+            if has_load == has_fmc:
+                print(f"Warning: {dir}/gsp/ must have booter or fmc, but not both")
+
+    finally:
+        os.chdir(prev_cwd)
+
 
 # Create a text file that can be inserted as-is to the WHENCE file of the
 # linux-firmware git repository.  We must also maintain compatibility with
@@ -830,9 +861,9 @@ def main():
     parser.add_argument('-o', '--output', default = os.path.join(os.getcwd(), '_out'),
         help = 'Path to target directory (where files will be written)')
     parser.add_argument('-r', '--revision',
-        help = 'Files will be named with this version number')
+        help = 'Files will be named with this version number.')
     parser.add_argument('--debug-fused', action='store_true',
-        help = 'Extract debug instead of production images')
+        help = 'Extract debug instead of production images.')
     parser.add_argument('-d', '--driver',
         nargs = '?', const = '',
         help = 'Also extract GSP-RM firmware from a source.'
@@ -842,11 +873,16 @@ def main():
         ' the GSP firmware directly.  If -d is given with no argument,'
         ' the .run file is downloaded automatically.')
     parser.add_argument('-s', '--symlink', action='store_true',
-        help = 'Also create symlinks for all supported GPUs')
+        help = 'Also create symlinks for all supported GPUs.  Requires -d option.')
     parser.add_argument('-w', '--whence', action='store_true',
-        help = 'Also generate a WHENCE file')
+        help = 'Also generate a WHENCE file.  Requires -d and -s options.')
 
     args = parser.parse_args()
+
+    if args.symlink and args.driver is None:
+        parser.error("-s/--symlink requires -d/--driver")
+    if args.whence and (args.driver is None or not args.symlink):
+        parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
 
     args.output = os.path.abspath(args.output)
     if args.driver is not None and args.driver != '' and not re.search('^http[s]://', args.driver):
