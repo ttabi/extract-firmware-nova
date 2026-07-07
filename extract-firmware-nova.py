@@ -343,7 +343,7 @@ def booter(gpu, load, sigsize, debug = False):
         raise MyException(f"signature file size for {name} is {signatures_size}, an uneven multiple of {sigsize}")
     if num_sigs != signatures_size // sigsize:
         raise MyException(f"mismatch number of signatures ({signatures_size // sigsize}), should be {num_sigs}")
-    tlv.add("SIGS", signatures)
+    tlv.add("SIGN", signatures)
 
     # Extract the patch location
     raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_loc")
@@ -424,7 +424,7 @@ def scrubber(gpu, sigsize, debug = False):
         raise MyException(f"signature file size for {name} is {signatures_size}, an uneven multiple of {sigsize}")
     if num_sigs != signatures_size // sigsize:
         raise MyException(f"mismatch number of signatures ({signatures_size // sigsize}), should be {num_sigs}")
-    tlv.add("SIGS", signatures)
+    tlv.add("SIGN", signatures)
 
     # Extract the patch location
     raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_loc")
@@ -497,7 +497,7 @@ def fmc(gpu: str, debug = False):
     ucode_sig = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_sig")
     if len(ucode_sig) < 96 or len(ucode_sig) > 384:
         raise MyException(f"FSP signature for {gpu} has an invalid length of {len(ucode_sig)}")
-    tlv.add("SIGS", ucode_sig)
+    tlv.add("SIGN", ucode_sig)
 
     ucode_pkey = get_bytes(filename, f"kgspBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}", "ucode_pkey")
     if len(ucode_pkey) < 97 or len(ucode_pkey) > 384:
