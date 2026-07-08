@@ -794,6 +794,11 @@ def main():
     global outputpath
     global version
 
+#    result = parse_hal_field('/home/ttabi/sw/dev/gpu_drv/chips_a/drivers/resman/build/openrm/_out/Linux_amd64_release/package/src/nvidia/generated/g_gpu_arch_nvoc.c',
+#        'bGpuArchIsZeroFb')
+#    print(result)
+#    sys.exit(0)
+
     parser = argparse.ArgumentParser(
         description = 'Extract firmware binaries from the OpenRM git repository'
         ' in a format expected by the Nova device drivers.',
