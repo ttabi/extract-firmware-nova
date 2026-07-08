@@ -785,7 +785,7 @@ def whence(gsp_origin = None):
 
     whence = sorted(whence, key=lambda s: s.split()[1])
 
-    with open(f"{outputpath}/WHENCE2.txt", 'w') as f:
+    with open(f"{outputpath}/WHENCE.txt", 'w') as f:
         f.writelines("\n".join(whence))
 
     print(f"Created {outputpath}/WHENCE.txt")
