@@ -690,6 +690,10 @@ def symlinks():
         for d in ['gb203', 'gb205', 'gb206', 'gb207']:
             symlink('gb202', d, target_is_directory = True)
 
+        # Rubin
+        for d in ['gr102']:
+            symlink('gr100', d, target_is_directory = True)
+
         # Handle gsp.bin and gsp.tlv for all remaining paths.
         root = Path(".")
         paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/gsp.bin")]
