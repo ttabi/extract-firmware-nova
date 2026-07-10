@@ -142,6 +142,10 @@ class ELF64:
             if name.startswith('.fw'):
                 self.sections.append((name, data[sh_offset:sh_offset + sh_size]))
 
+            # as well as the ".note.gnu.build-id" section
+            if name == ".note.gnu.build-id":
+                self.sections.append((name, data[sh_offset:sh_offset + sh_size]))
+
     def section(self, name: str) -> bytes:
         for sec_name, sec_data in self.sections:
             if sec_name == name:
@@ -530,6 +534,12 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
     tlv.add("SIGN", signature)
     tlv.add("SIZE", len(elf.section(".fwimage")))
     tlv.add("FILE", "gsp.bin")
+
+    # The ".note.gnu.build-id" section contains a 16-byte ELF note header
+    # followed by the 20-byte build ID.
+    build_id = elf.section(".note.gnu.build-id")
+    tlv.add("BLID", build_id[16:])
+
     tlv.write()
 
 # Copy ucodes binaries if present (r610+) and creates its TLV.  Each ucodes.bin
