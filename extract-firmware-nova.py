@@ -876,7 +876,10 @@ def main():
     version = args.revision
     if not version:
         with open("version.mk") as f:
-            version = re.search(r'^NVIDIA_VERSION = ([^\s]+)', f.read(), re.MULTILINE).group(1)
+            m = re.search(r'^NVIDIA_VERSION = ([^\s]+)', f.read(), re.MULTILINE)
+            if not m:
+                raise MyException("Could not find or parse NVIDIA_VERSION from version.mk")
+            version = m.group(1)
 
     if not version.isascii():
         raise MyException(f"Version string {version} must not contain non-ASCII characters")
