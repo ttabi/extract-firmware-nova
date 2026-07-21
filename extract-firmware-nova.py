@@ -247,22 +247,26 @@ def generic_bootloader(gpu):
 
     # Extract the descriptor (RM_FLCN_BL_DESC)
     descriptor = get_bytes(filename, f"RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_{GPU}", "ucode_desc")
-    (start_tag, dmem_load_off, code_off, code_size, data_off,
+    (start_tag, dmem_load_off, code_offset, code_size, data_off,
         data_size) = struct.unpack("<6I", descriptor)
     # Both RM and Nova only load the code section, and both assume that
     # code_off and dmem_load_off are zero.
-    if code_off != 0:
-        raise MyException(f"code offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {code_off}")
+    if code_offset != 0:
+        raise MyException(f"code offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {code_offset}")
     if dmem_load_off != 0:
         raise MyException(f"dmem load offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {dmem_load_off}")
     # Ensure the start tag fits in the register
     if start_tag > 65535:
         raise MyException(f"start tag in ksec2BinArchiveBlUcode_{GPU} value of {start_tag} is too large")
-    tlv.add("STRT", start_tag)
-    tlv.add("CDSZ", code_size)
 
     # Extract the actual bootloader firmware
     firmware = get_bytes(filename, f"ksec2BinArchiveBlUcode_{GPU}", "ucode_image")
+    if code_offset + code_size > len(firmware):
+        raise MyException(f"{code_offset=} + {code_size=} in ksec2BinArchiveBlUcode_{GPU} exceeds image size of {len(firmware)}")
+
+    tlv.add("STRT", start_tag)
+    tlv.add("CDSZ", code_size)
+
     tlv.add("BLOB", firmware)
 
     tlv.write()
@@ -387,6 +391,18 @@ def booter(gpu, load, sigsize, debug = False):
     if os_code_size != app_code_offset:
         raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} has os_code_size={os_code_size} and app_code_offset={app_code_offset}, but they should be the same.")
 
+    # Extract the actual booter firmware
+    firmware = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", f"image_{fuse}")
+
+    if os_code_size + os_data_size + app_code_size > len(firmware):
+        raise MyException(f"{os_code_size=} + {os_data_size=} + {app_code_size=} for {name} exceeds image size of {len(firmware)}")
+    if os_code_offset + os_code_size > len(firmware):
+        raise MyException(f"{os_code_offset=} + {os_code_size=} for {name} exceeds image size of {len(firmware)}")
+    if os_data_offset + os_data_size > len(firmware):
+        raise MyException(f"{os_data_offset=} + {os_data_size=} for {name} exceeds image size of {len(firmware)}")
+    if app_code_offset + app_code_size > len(firmware):
+        raise MyException(f"{app_code_offset=} + {app_code_size=} for {name} exceeds image size of {len(firmware)}")
+
     tlv.add("CDOF", os_code_offset)
     tlv.add("CDSZ", os_code_size)
     tlv.add("DAOF", os_data_offset)
@@ -394,8 +410,6 @@ def booter(gpu, load, sigsize, debug = False):
     tlv.add("A0CO", app_code_offset)
     tlv.add("A0CS", app_code_size)
 
-    # Extract the actual booter firmware
-    firmware = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", f"image_{fuse}")
     tlv.add("BLOB", firmware)
 
     tlv.write()
@@ -469,6 +483,18 @@ def scrubber(gpu, sigsize, debug = False):
     if os_code_size != app_code_offset:
         raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} has os_code_size={os_code_size} and app_code_offset={app_code_offset}, but they should be the same.")
 
+    # Extract the actual scrubber firmware
+    firmware = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"image_{fuse}")
+
+    if os_code_size + os_data_size + app_code_size > len(firmware):
+        raise MyException(f"{os_code_size=} + {os_data_size=} + {app_code_size=} for {name} exceeds image size of {len(firmware)}")
+    if os_code_offset + os_code_size > len(firmware):
+        raise MyException(f"{os_code_offset=} + {os_code_size=} for {name} exceeds image size of {len(firmware)}")
+    if os_data_offset + os_data_size > len(firmware):
+        raise MyException(f"{os_data_offset=} + {os_data_size=} for {name} exceeds image size of {len(firmware)}")
+    if app_code_offset + app_code_size > len(firmware):
+        raise MyException(f"{app_code_offset=} + {app_code_size=} for {name} exceeds image size of {len(firmware)}")
+
     tlv.add("CDOF", os_code_offset)
     tlv.add("CDSZ", os_code_size)
     tlv.add("DAOF", os_data_offset)
@@ -476,8 +502,6 @@ def scrubber(gpu, sigsize, debug = False):
     tlv.add("A0CO", app_code_offset)
     tlv.add("A0CS", app_code_size)
 
-    # Extract the actual scrubber firmware
-    firmware = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"image_{fuse}")
     tlv.add("BLOB", firmware)
 
     tlv.write()
