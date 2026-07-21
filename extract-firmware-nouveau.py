@@ -108,6 +108,7 @@ def gsp_bootloader(gpu, fuse = ""):
     if len(fuse) > 0:
         fuse = f"_{fuse}"
 
+    name = f"gsp-bootloader-{gpu}{fuse}"
     GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmBoot_{GPU}.c"
 
@@ -218,32 +219,33 @@ def booter(gpu, load, sigsize, fuse = "prod"):
         # Extract the patch location
         raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_loc")
         if len(raw) != 4:
-            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(raw)} bytes.")
+            raise MyException(f"patch_loc[] array for {name} should be one element, but is {len(raw)} bytes.")
         patchloc = struct.unpack("<I", raw)[0]
 
         # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
         # so if it's ever non-zero, something has changed.
         raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_sig")
         if len(raw) != 4:
-            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(raw)} bytes.")
+            raise MyException(f"patch_sig[] array for {name} should be one element, but is {len(raw)} bytes.")
         patchsig = struct.unpack("<I", raw)[0]
         if patchsig != 0:
             raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
 
         # Extract the patch meta variables
         raw = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", "patch_meta")
-        fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", raw)
+        fuse_ver, engine_id, ucode_id = struct.unpack("<III", raw)
 
         # Fourth, patch_loc[], patch_sig[], fuse_ver, engine_id, ucode_id, and num_sigs
         f.write(struct.pack("<6L", patchloc, patchsig, fuse_ver, engine_id, ucode_id, num_sigs))
 
         # Extract the descriptor (nvfw_hs_load_header_v2)
         descriptor = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", f"header_{fuse}")
+        if len(descriptor) < 36:
+            raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} must be at least 36 bytes, but is instead {len(descriptor)} bytes.")
 
         # Extract some of individual fields of nvfw_hs_load_header_v2
-        # num_apps is the fifth field of struct nvfw_hs_load_header_v2
         (os_code_offset, os_code_size, os_data_offset, os_data_size, num_apps,
-         app_code_offset, app_code_size, app_data_offset, app_data_size) = struct.unpack("<9L", descriptor)
+         app_code_offset, app_code_size, app_data_offset, app_data_size) = struct.unpack_from("<9I", descriptor)
         # Verify that sizeof(descriptor) == 5 * 4 + num_apps * 16
         if len(descriptor) != 5 * 4 + num_apps * 16:
             raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} should be {5 * 4 + num_apps * 16} bytes, but is instead {len(descriptor)} bytes.")
@@ -314,32 +316,34 @@ def scrubber(gpu, sigsize, fuse = "prod"):
         # Extract the patch location
         raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_loc")
         if len(raw) != 4:
-            raise MyException(f"patch_loc[] array for {name} should be one one element, but is {len(raw)} bytes.")
+            raise MyException(f"patch_loc[] array for {name} should be one element, but is {len(raw)} bytes.")
         patchloc = struct.unpack("<I", raw)[0]
 
         # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
         # so if it's ever non-zero, something has changed.
         raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_sig")
         if len(raw) != 4:
-            raise MyException(f"patch_sig[] array for {name} should be one one element, but is {len(raw)} bytes.")
+            raise MyException(f"patch_sig[] array for {name} should be one element, but is {len(raw)} bytes.")
         patchsig = struct.unpack("<I", raw)[0]
         if patchsig != 0:
             raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
 
         # Extract the patch meta variables
         raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_meta")
-        fuse_ver, engine_id, ucode_id = struct.unpack("<LLL", raw)
+        fuse_ver, engine_id, ucode_id = struct.unpack("<III", raw)
 
         # Fourth, patch_loc[], patch_sig[], fuse_ver, engine_id, ucode_id, and num_sigs
         f.write(struct.pack("<6L", patchloc, patchsig, fuse_ver, engine_id, ucode_id, num_sigs))
 
         # Extract the descriptor (nvkm_gsp_booter_fw_hdr)
         descriptor = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"header_{fuse}")
+        if len(descriptor) < 36:
+            raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} must be at least 36 bytes, but is instead {len(descriptor)} bytes.")
 
         # Extract some of individual fields of nvfw_hs_load_header_v2
         # num_apps is the fifth field of struct nvfw_hs_load_header_v2
         (os_code_offset, os_code_size, os_data_offset, os_data_size, num_apps,
-         app_code_offset, app_code_size, app_data_offset, app_data_size) = struct.unpack("<9I", descriptor)
+         app_code_offset, app_code_size, app_data_offset, app_data_size) = struct.unpack_from("<9I", descriptor)
         # Verify that sizeof(descriptor) == 5 * 4 + num_apps * 16
         if len(descriptor) != 5 * 4 + num_apps * 16:
             raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} should be {5 * 4 + num_apps * 16} bytes, but is instead {len(descriptor)} bytes.")
