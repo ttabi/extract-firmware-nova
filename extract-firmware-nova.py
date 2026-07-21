@@ -804,20 +804,20 @@ def whence(gsp_origin = None):
             full = os.path.join(dirpath, name)
             rel = os.path.relpath(full, outputpath)
             if os.path.islink(full):
-                whence.append(f"Link: {rel} -> {os.readlink(full)}")
+                whence.append(f"Link: {rel} -> {os.readlink(full)}\n")
             else:
-                whence.append(f"File: {rel}")
+                whence.append(f"File: {rel}\n")
         # Symlinks-to-directories land in dirnames; with followlinks=False
         # os.walk lists them but won't recurse into them, so capture them here.
         for name in dirnames:
             full = os.path.join(dirpath, name)
             if os.path.islink(full):
-                whence.append(f"Link: {os.path.relpath(full, outputpath)} -> {os.readlink(full)}")
+                whence.append(f"Link: {os.path.relpath(full, outputpath)} -> {os.readlink(full)}\n")
 
     whence = sorted(whence, key=lambda s: s.split()[1])
 
     with open(f"{outputpath}/WHENCE.txt", 'w') as f:
-        f.writelines("\n".join(whence))
+        f.writelines(whence)
 
     print(f"Created {outputpath}/WHENCE.txt")
 
