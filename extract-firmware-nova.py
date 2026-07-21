@@ -723,12 +723,24 @@ def symlinks():
                 symlink("../../ga102/gsp/ucodes.bin", f"{p}/gsp/ucodes.bin")
                 symlink("../../ga102/gsp/ucodes.tlv", f"{p}/gsp/ucodes.tlv")
 
-        # Verify that there are no broken symlinks
+        # Verify that there are no broken symlinks, and that every file
+        # symlink points to a file inside a gsp/ directory.
         for dirpath, dirnames, filenames in os.walk("."):
             for name in dirnames + filenames:
                 full = os.path.join(dirpath, name)
-                if os.path.islink(full) and not os.path.exists(full):
-                    print(f"Warning: broken symlink {full} -> {os.readlink(full)}")
+                if not os.path.islink(full):
+                    continue
+                target = os.readlink(full)
+                if not os.path.exists(full):
+                    print(f"Warning: broken symlink {full} -> {target}")
+                    continue
+                # Directory symlinks (e.g. tu104/gsp -> ../tu102/gsp,
+                # ad103 -> ad102) are exempt.
+                if os.path.isdir(full):
+                    continue
+                resolved = os.path.normpath(os.path.join(dirpath, target))
+                if os.path.basename(os.path.dirname(resolved)) != 'gsp':
+                    print(f"Warning: symlink {full} -> {target} does not point to a file in a gsp/ directory")
 
         # Verify that we have the necessary files or links for every GPU.
         for dir in [entry.name for entry in os.scandir(".") if entry.is_dir()]:
