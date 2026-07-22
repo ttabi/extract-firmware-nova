@@ -695,11 +695,6 @@ def symlinks():
     for p in paths:
         symlink(f"../../ga102/gsp/gsp-{version}.bin", f"{p}/gsp/gsp-{version}.bin")
 
-    symlink(f"../../ga102/gsp/gsp-{version}.bin", f"ad102/gsp/gsp-{version}.bin")
-    symlink(f"../../ga102/gsp/gsp-{version}.bin", f"gh100/gsp/gsp-{version}.bin")
-    symlink(f"../../ga102/gsp/gsp-{version}.bin", f"gb100/gsp/gsp-{version}.bin")
-    symlink(f"../../ga102/gsp/gsp-{version}.bin", f"gb202/gsp/gsp-{version}.bin")
-
     # Symlink the ucodes binaries
     if os.path.exists(f"tu102/gsp/ucodes-{version}.bin"):
         symlink(f"../../tu102/gsp/ucodes-{version}.bin", f"tu116/gsp/ucodes-{version}.bin")
