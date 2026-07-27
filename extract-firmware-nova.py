@@ -43,6 +43,12 @@ from extract_firmware_common import (
     extract_run_file,
 )
 
+# Newer firmware versions that Nova will support might have new files
+# that conflict with the symlinks for older firmware versions that
+# Nouveau supports.  To avoid these collisions, place all Nova images
+# in a new subdirectory.
+subdir = "gsp"
+
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
 # -------------------------------------------------------------------
@@ -54,7 +60,7 @@ class TLV:
         self.entries = []
 
     def add(self, tag: str, value):
-        filename = f"{self.gpu}/gsp/{self.filename}.tlv"
+        filename = f"{self.gpu}/{subdir}/{self.filename}.tlv"
 
         if len(tag) != 4:
             raise MyException(f"TLV tag '{tag}' in {filename} must be exactly 4 characters")
@@ -83,10 +89,10 @@ class TLV:
         # Add the version last so that it's not iterated over every time
         self.add("VERS", version)
 
-        print(f"Creating nvidia/{self.gpu}/gsp/{self.filename}.tlv")
-        os.makedirs(f"{outputpath}/nvidia/{self.gpu}/gsp/", exist_ok = True)
+        print(f"Creating nvidia/{self.gpu}/{subdir}/{self.filename}.tlv")
+        os.makedirs(f"{outputpath}/nvidia/{self.gpu}/{subdir}/", exist_ok = True)
 
-        with open(f"{outputpath}/nvidia/{self.gpu}/gsp/{self.filename}.tlv", "wb") as f:
+        with open(f"{outputpath}/nvidia/{self.gpu}/{subdir}/{self.filename}.tlv", "wb") as f:
             f.write(struct.pack('4s', b"NVFW"))
 
             for tag, value in self.entries:
@@ -549,12 +555,12 @@ def fwimage_from_gsp_elf(filename: str, gpu: str):
 
     elf = ELF64(filename)
 
-    os.makedirs(f"{outputpath}/nvidia/{gpu}/gsp/", exist_ok = True)
+    os.makedirs(f"{outputpath}/nvidia/{gpu}/{subdir}/", exist_ok = True)
 
-    with open(f"{outputpath}/nvidia/{gpu}/gsp/gsp.bin", "wb") as f:
+    with open(f"{outputpath}/nvidia/{gpu}/{subdir}/gsp.bin", "wb") as f:
         f.write(elf.section(".fwimage"))
 
-    print(f"Created {gpu}/gsp/gsp.bin from {filename}")
+    print(f"Created {gpu}/{subdir}/gsp.bin from {filename}")
 
 # Generate a gsp.tlv file that points to the correct GSP image
 # `elf` is the original ELF image from the .run file or build
@@ -589,9 +595,9 @@ def ucodes(gsp_source):
         tlv.add("FILE", "ucodes.bin")
         tlv.write()
 
-        os.makedirs(f"{outputpath}/nvidia/tu102/gsp/", exist_ok = True)
-        shutil.copyfile(tu10x_ucodes_src, f"{outputpath}/nvidia/tu102/gsp/ucodes.bin")
-        print(f"Copied ucodes_tu10x.bin to nvidia/tu102/gsp/ucodes.bin")
+        os.makedirs(f"{outputpath}/nvidia/tu102/{subdir}/", exist_ok = True)
+        shutil.copyfile(tu10x_ucodes_src, f"{outputpath}/nvidia/tu102/{subdir}/ucodes.bin")
+        print(f"Copied ucodes_tu10x.bin to nvidia/tu102/{subdir}/ucodes.bin")
 
     if os.path.exists(ga10x_ucodes_src):
         tlv = TLV("ucodes", "ga102")
@@ -599,9 +605,9 @@ def ucodes(gsp_source):
         tlv.add("FILE", "ucodes.bin")
         tlv.write()
 
-        os.makedirs(f"{outputpath}/nvidia/ga102/gsp/", exist_ok = True)
-        shutil.copyfile(ga10x_ucodes_src, f"{outputpath}/nvidia/ga102/gsp/ucodes.bin")
-        print(f"Copied ucodes_ga10x.bin to nvidia/ga102/gsp/ucodes.bin")
+        os.makedirs(f"{outputpath}/nvidia/ga102/{subdir}/", exist_ok = True)
+        shutil.copyfile(ga10x_ucodes_src, f"{outputpath}/nvidia/ga102/{subdir}/ucodes.bin")
+        print(f"Copied ucodes_ga10x.bin to nvidia/ga102/{subdir}/ucodes.bin")
 
 # Extract the GSP-RM binaries and create the TLV files for each GPU that has its own
 # .fwsignature section
@@ -623,11 +629,11 @@ def gsprm(tu10x_gsp_src, ga10x_gsp_src):
     gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
 
-    if os.path.isdir(f"{outputpath}/nvidia/gb10b/gsp"):
+    if os.path.isdir(f"{outputpath}/nvidia/gb10b/{subdir}"):
         gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
-    if os.path.isdir(f"{outputpath}/nvidia/gb20b/gsp"):
+    if os.path.isdir(f"{outputpath}/nvidia/gb20b/{subdir}"):
         gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
-    if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
+    if os.path.isdir(f"{outputpath}/nvidia/gr100/{subdir}"):
         gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
 # Extract the GSP-RM firmware from the .run file and copy the binaries
@@ -708,35 +714,28 @@ def symlinks():
             os.makedirs(d, exist_ok = True)
 
         for d in ['tu104', 'tu106']:
-            symlink('../tu102/gsp', f"{d}/gsp", target_is_directory = True)
+            symlink(f'../tu102/{subdir}', f"{d}/{subdir}", target_is_directory = True)
 
-        symlink('../tu116/gsp', 'tu117/gsp', target_is_directory = True)
+        symlink(f'../tu116/{subdir}', f'tu117/{subdir}', target_is_directory = True)
 
         # TU11x uses the same GSP bootloader as TU10x
-        symlink("../../tu102/gsp/gsp_bootloader.tlv", "tu116/gsp/gsp_bootloader.tlv")
+        symlink(f"../../tu102/{subdir}/gsp_bootloader.tlv", f"tu116/{subdir}/gsp_bootloader.tlv")
 
         # TU11x and GA100 use the same generic bootloader as TU10x
-        symlink("../../tu102/gsp/gen_bootloader.tlv", "tu116/gsp/gen_bootloader.tlv")
-        symlink("../../tu102/gsp/gen_bootloader.tlv", "ga100/gsp/gen_bootloader.tlv")
+        symlink(f"../../tu102/{subdir}/gen_bootloader.tlv", f"tu116/{subdir}/gen_bootloader.tlv")
+        symlink(f"../../tu102/{subdir}/gen_bootloader.tlv", f"ga100/{subdir}/gen_bootloader.tlv")
 
         # Symlink the GSP-RM image for TU11x and GA100
-        symlink("../../tu102/gsp/gsp.bin", "tu116/gsp/gsp.bin")
-        symlink("../../tu102/gsp/gsp.bin", "ga100/gsp/gsp.bin")
+        symlink(f"../../tu102/{subdir}/gsp.bin", f"tu116/{subdir}/gsp.bin")
+        symlink(f"../../tu102/{subdir}/gsp.bin", f"ga100/{subdir}/gsp.bin")
 
         # Ampere
         for d in ['ga103', 'ga104', 'ga106', 'ga107']:
             os.makedirs(d, exist_ok = True)
-            symlink('../ga102/gsp', f"{d}/gsp", target_is_directory = True)
+            symlink(f'../ga102/{subdir}', f"{d}/{subdir}", target_is_directory = True)
 
         # Ada
         for d in ['ad103', 'ad104', 'ad106', 'ad107']:
-            # Some older versions of /lib/firmware had symlinks from ad10x/gsp to ad102/gsp,
-            # even though there were no other directories in ad10x.  Delete the existing
-            # ad10x directory so that we can replace it with a symlink.
-            if os.path.islink(f"{d}/gsp"):
-                os.remove(f"{d}/gsp")
-                os.rmdir(d)
-
             symlink('ad102', d, target_is_directory = True)
 
         # Blackwell
@@ -752,22 +751,22 @@ def symlinks():
 
         # Handle gsp.bin and gsp.tlv for all remaining paths.
         root = Path(".")
-        paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/gsp.bin")]
+        paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/{subdir}") and not os.path.exists(f"{p}/{subdir}/gsp.bin")]
         for p in paths:
-            symlink("../../ga102/gsp/gsp.bin", f"{p}/gsp/gsp.bin")
+            symlink(f"../../ga102/{subdir}/gsp.bin", f"{p}/{subdir}/gsp.bin")
 
         # Symlink the ucodes binaries, if they exist.
-        if os.path.exists("tu102/gsp/ucodes.bin"):
-            symlink("../../tu102/gsp/ucodes.bin", "tu116/gsp/ucodes.bin")
-            symlink("../../tu102/gsp/ucodes.bin", "ga100/gsp/ucodes.bin")
-            symlink("../../tu102/gsp/ucodes.tlv", "tu116/gsp/ucodes.tlv")
-            symlink("../../tu102/gsp/ucodes.tlv", "ga100/gsp/ucodes.tlv")
+        if os.path.exists(f"tu102/{subdir}/ucodes.bin"):
+            symlink(f"../../tu102/{subdir}/ucodes.bin", f"tu116/{subdir}/ucodes.bin")
+            symlink(f"../../tu102/{subdir}/ucodes.bin", f"ga100/{subdir}/ucodes.bin")
+            symlink(f"../../tu102/{subdir}/ucodes.tlv", f"tu116/{subdir}/ucodes.tlv")
+            symlink(f"../../tu102/{subdir}/ucodes.tlv", f"ga100/{subdir}/ucodes.tlv")
 
-        if os.path.exists("ga102/gsp/ucodes.bin"):
-            paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/gsp") and not os.path.exists(f"{p}/gsp/ucodes.bin") and p.name != "ga102"]
+        if os.path.exists(f"ga102/{subdir}/ucodes.bin"):
+            paths = [p for p in root.glob("*") if os.path.isdir(f"{p}/{subdir}") and not os.path.exists(f"{p}/{subdir}/ucodes.bin") and p.name != "ga102"]
             for p in paths:
-                symlink("../../ga102/gsp/ucodes.bin", f"{p}/gsp/ucodes.bin")
-                symlink("../../ga102/gsp/ucodes.tlv", f"{p}/gsp/ucodes.tlv")
+                symlink(f"../../ga102/{subdir}/ucodes.bin", f"{p}/{subdir}/ucodes.bin")
+                symlink(f"../../ga102/{subdir}/ucodes.tlv", f"{p}/{subdir}/ucodes.tlv")
 
         # Verify that there are no broken symlinks, and that every file
         # symlink points to a file inside a gsp/ directory.
@@ -785,29 +784,29 @@ def symlinks():
                 if os.path.isdir(full):
                     continue
                 resolved = os.path.normpath(os.path.join(dirpath, target))
-                if os.path.basename(os.path.dirname(resolved)) != 'gsp':
-                    print(f"Warning: symlink {full} -> {target} does not point to a file in a gsp/ directory")
+                if os.path.basename(os.path.dirname(resolved)) != subdir:
+                    print(f"Warning: symlink {full} -> {target} does not point to a file in a {subdir}/ directory")
 
         # Verify that we have the necessary files or links for every GPU.
         for dir in [entry.name for entry in os.scandir(".") if entry.is_dir()]:
-            if not os.path.exists(f"{dir}/gsp/gsp.bin"):
-                print(f"Warning: {dir}/gsp/gsp.bin is missing")
-            if not os.path.exists(f"{dir}/gsp/gsp.tlv"):
-                print(f"Warning: {dir}/gsp/gsp.tlv is missing")
-            if os.path.islink(f"{dir}/gsp/gsp.tlv"):
-                print(f"Warning: {dir}/gsp/gsp.tlv should not be a symlink")
-            if not os.path.exists(f"{dir}/gsp/gsp_bootloader.tlv"):
-                print(f"Warning: {dir}/gsp/gsp_bootloader.tlv is missing")
+            if not os.path.exists(f"{dir}/{subdir}/gsp.bin"):
+                print(f"Warning: {dir}/{subdir}/gsp.bin is missing")
+            if not os.path.exists(f"{dir}/{subdir}/gsp.tlv"):
+                print(f"Warning: {dir}/{subdir}/gsp.tlv is missing")
+            if os.path.islink(f"{dir}/{subdir}/gsp.tlv"):
+                print(f"Warning: {dir}/{subdir}/gsp.tlv should not be a symlink")
+            if not os.path.exists(f"{dir}/{subdir}/gsp_bootloader.tlv"):
+                print(f"Warning: {dir}/{subdir}/gsp_bootloader.tlv is missing")
 
-            has_load = os.path.exists(f"{dir}/gsp/booter_load.tlv");
-            has_unload = os.path.exists(f"{dir}/gsp/booter_unload.tlv");
-            has_fmc = os.path.exists(f"{dir}/gsp/fmc.tlv");
+            has_load = os.path.exists(f"{dir}/{subdir}/booter_load.tlv");
+            has_unload = os.path.exists(f"{dir}/{subdir}/booter_unload.tlv");
+            has_fmc = os.path.exists(f"{dir}/{subdir}/fmc.tlv");
             if has_load != has_unload:
-                print(f"Warning: {dir}/gsp/ booter_load requires booter_unload, and vice versa")
+                print(f"Warning: {dir}/{subdir}/ booter_load requires booter_unload, and vice versa")
             if not has_load and not has_fmc:
-                print(f"Warning: {dir}/gsp/ must have booter or fmc")
+                print(f"Warning: {dir}/{subdir}/ must have booter or fmc")
             if has_load and has_fmc:
-                print(f"Warning: {dir}/gsp/ must not have both booter and fmc")
+                print(f"Warning: {dir}/{subdir}/ must not have both booter and fmc")
 
     finally:
         os.chdir(prev_cwd)
