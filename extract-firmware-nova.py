@@ -904,7 +904,13 @@ def main():
     if args.whence and (args.driver is None or not args.symlink):
         parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
 
-    args.output = os.path.abspath(args.output)
+    outputpath = os.path.abspath(args.output)
+
+    # Symlinks should not be created in the linux-firmware git repository, because
+    # it uses the WHENCE file to create symlinks.  Check for that, to avoid
+    # accidental usage that is confusing.
+    if args.symlink and os.path.exists(f"{outputpath}/copy-firmware.sh"):
+        raise MyException("Symlinks should not be created in the linux-firmware repository")
 
     # If args.driver is a file or path, normalize it before the chdir.
     if args.driver and not re.search('^https?://', args.driver):
@@ -929,9 +935,7 @@ def main():
 
     print(f"Generating files for version {version}")
 
-    outputpath = args.output
     print(f"Writing files to {outputpath}")
-
     os.makedirs(f"{outputpath}/nvidia", exist_ok = True)
 
     # FIXME: These values are currently not used
