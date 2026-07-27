@@ -54,20 +54,25 @@ class TLV:
         self.entries = []
 
     def add(self, tag: str, value):
+        filename = f"{self.gpu}/gsp/{self.filename}.tlv"
+
         if len(tag) != 4:
-            raise MyException(f"TLV tag '{tag}' must be exactly 4 characters")
+            raise MyException(f"TLV tag '{tag}' in {filename} must be exactly 4 characters")
+
+        if any(t == tag for t, _ in self.entries):
+            raise MyException(f"TLV tag '{tag}' in {filename} already exists")
 
         # Integers are a special case, as they have no "length" in Python
         if isinstance(value, int):
             # Reject negative numbers and integers larger than 64-bit
             if not (0 <= value <= 0xFFFFFFFFFFFFFFFF):
-                raise MyException(f"TLV tag '{tag}' integer value {value} out of range")
+                raise MyException(f"TLV tag '{tag}' in {filename} integer value {value} out of range")
         else:
             if len(value) == 0:
-                raise MyException(f"TLV tag '{tag}' has no data")
+                raise MyException(f"TLV tag '{tag}' in {filename} has no data")
             # We don't want non-ASCII strings anywhere
             if isinstance(value, str) and not value.isascii():
-                raise MyException(f"TLV tag '{tag}' value is a string but contains non-ASCII characters")
+                raise MyException(f"TLV tag '{tag}' in {filename} value is a string but contains non-ASCII characters")
 
         self.entries.append((tag, value))
 
