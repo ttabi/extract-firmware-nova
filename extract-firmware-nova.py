@@ -80,7 +80,7 @@ class TLV:
         global outputpath
         global version
 
-        # Add the version last so that it's not iterated over ever time
+        # Add the version last so that it's not iterated over every time
         self.add("VERS", version)
 
         print(f"Creating nvidia/{self.gpu}/gsp/{self.filename}.tlv")
@@ -603,63 +603,20 @@ def ucodes(gsp_source):
         shutil.copyfile(ga10x_ucodes_src, f"{outputpath}/nvidia/ga102/gsp/ucodes.bin")
         print(f"Copied ucodes_ga10x.bin to nvidia/ga102/gsp/ucodes.bin")
 
-# Extract the GSP-RM firmware from the .run file and copy the binaries
-# to the target directory.
-def gsp_firmware_from_run(filename):
+# Extract the GSP-RM binaries and create the TLV files for each GPU that has its own
+# .fwsignature section
+def gsprm(tu10x_gsp_src, ga10x_gsp_src):
     global outputpath
 
-    with tempfile.TemporaryDirectory() as temp:
-        directory = extract_run_file(filename, temp)
+    fwimage_from_gsp_elf(tu10x_gsp_src, "tu102")
+    fwimage_from_gsp_elf(ga10x_gsp_src, "ga102")
 
-        tu10x_gsp_src = f"{directory}/gsp_tu10x.bin"
-        ga10x_gsp_src = f"{directory}/gsp_ga10x.bin"
-
-        fwimage_from_gsp_elf(tu10x_gsp_src, "tu102")
-        fwimage_from_gsp_elf(ga10x_gsp_src, "ga102")
-
-        elf = ELF64(tu10x_gsp_src)
-        gsp_tlv_from_elf(elf, ".fwsignature_tu10x", "tu102")
-        gsp_tlv_from_elf(elf, ".fwsignature_tu11x", "tu116")
-        gsp_tlv_from_elf(elf, ".fwsignature_ga100", "ga100")
-
-        elf = ELF64(ga10x_gsp_src)
-        gsp_tlv_from_elf(elf, ".fwsignature_ga10x", "ga102")
-        gsp_tlv_from_elf(elf, ".fwsignature_ad10x", "ad102")
-        gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
-        gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
-        gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
-        if os.path.isdir(f"{outputpath}/nvidia/gb10b/gsp"):
-            gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
-        if os.path.isdir(f"{outputpath}/nvidia/gb20b/gsp"):
-            gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
-        if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
-            gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
-
-        ucodes(directory)
-
-# Extract GSP firmware from a local build output directory.
-# This is an NVIDIA-internal feature for use with internal build systems.
-def gsp_firmware_from_build(gsp_build_dir):
-    global outputpath
-
-    if not os.path.isdir(gsp_build_dir):
-        raise MyException(f"GSP build directory does not exist: {gsp_build_dir}")
-
-    tu10x_src = os.path.join(gsp_build_dir, "gsp_tu10x.bin")
-    ga10x_src = os.path.join(gsp_build_dir, "gsp_ga10x.bin")
-
-    if not os.path.exists(tu10x_src) or not os.path.exists(ga10x_src):
-        raise MyException(f"Firmware files are missing in {gsp_build_dir}")
-
-    fwimage_from_gsp_elf(tu10x_src, "tu102")
-    fwimage_from_gsp_elf(ga10x_src, "ga102")
-
-    elf = ELF64(tu10x_src)
+    elf = ELF64(tu10x_gsp_src)
     gsp_tlv_from_elf(elf, ".fwsignature_tu10x", "tu102")
     gsp_tlv_from_elf(elf, ".fwsignature_tu11x", "tu116")
     gsp_tlv_from_elf(elf, ".fwsignature_ga100", "ga100")
 
-    elf = ELF64(ga10x_src)
+    elf = ELF64(ga10x_gsp_src)
     gsp_tlv_from_elf(elf, ".fwsignature_ga10x", "ga102")
     gsp_tlv_from_elf(elf, ".fwsignature_ad10x", "ad102")
     gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
@@ -673,7 +630,67 @@ def gsp_firmware_from_build(gsp_build_dir):
     if os.path.isdir(f"{outputpath}/nvidia/gr100/gsp"):
         gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
+# Extract the GSP-RM firmware from the .run file and copy the binaries
+# to the target directory.
+def gsp_firmware_from_run(filename):
+    with tempfile.TemporaryDirectory() as temp:
+        directory = extract_run_file(filename, temp)
+
+        tu10x_gsp_src = os.path.join(directory, "gsp_tu10x.bin")
+        ga10x_gsp_src = os.path.join(directory, "gsp_ga10x.bin")
+
+        gsprm(tu10x_gsp_src, ga10x_gsp_src)
+        ucodes(directory)
+
+# Extract GSP firmware from a local build output directory.
+# This is an NVIDIA-internal feature for use with internal build systems.
+def gsp_firmware_from_build(gsp_build_dir):
+    if not os.path.isdir(gsp_build_dir):
+        raise MyException(f"GSP build directory does not exist: {gsp_build_dir}")
+
+    tu10x_gsp_src = os.path.join(gsp_build_dir, "gsp_tu10x.bin")
+    ga10x_gsp_src = os.path.join(gsp_build_dir, "gsp_ga10x.bin")
+
+    if not os.path.exists(tu10x_gsp_src) or not os.path.exists(ga10x_gsp_src):
+        raise MyException(f"Firmware files are missing in {gsp_build_dir}")
+
+    gsprm(tu10x_gsp_src, ga10x_gsp_src)
     ucodes(gsp_build_dir)
+
+# Find the .run file and extract the GSP-RM binaries from it.
+#
+# `pathspec` is either
+# 1) empty string -- determine the URL to download the .run file that matches the current OpenRM tree
+# 2) url -- download the .run file from that URL
+# 3) filename -- use the specific filename
+# 4) path -- extract the binaries from the local build
+def driver(pathspec):
+    global version
+
+    if pathspec == '':
+        # No path/url provided, so make a guess of the URL
+        # to automatically download the right version.
+        pathspec = f'https://download.nvidia.com/XFree86/Linux-x86_64/{version}/NVIDIA-Linux-x86_64-{version}.run'
+
+    if re.search('^https?://', pathspec):
+        with tempfile.NamedTemporaryFile(prefix = f'NVIDIA-Linux-x86_64-{version}-', suffix = '.run') as f:
+            print(f"Downloading driver from {pathspec} as {f.name}")
+            try:
+                urllib.request.urlretrieve(pathspec, f.name)
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    raise MyException(f"Driver version {version} not found at download.nvidia.com.")
+                raise MyException(f"Failed to download {pathspec}: HTTP {e.code} {e.reason}")
+            except urllib.error.URLError as e:
+                raise MyException(f"Failed to download {pathspec}: {e.reason}")
+
+            gsp_firmware_from_run(f.name)
+    elif os.path.isfile(pathspec) and os.access(pathspec, os.R_OK):
+        gsp_firmware_from_run(pathspec)
+    elif os.path.isdir(pathspec):
+        gsp_firmware_from_build(pathspec)
+    else:
+        raise MyException(f"{pathspec} does not exist or is unreadable.")
 
 # Create symlinks in the target directory for the other GPUs.  This mirrors
 # what the WHENCE file in linux-firmware does.
@@ -802,7 +819,7 @@ def symlinks():
 # always matches the real world.  The drawback is that it requires the -d and -s options
 # to get a full picture.
 
-# We must also maintain compatibility with the existing directory heirarchy that is
+# We must also maintain compatibility with the existing directory hierarchy that is
 # defined by Nouveau, which is why ga103/gsp -> ga102/gsp, but ad103 -> ad102.
 #
 # Some hard rules for the layout of files:
@@ -819,12 +836,8 @@ def symlinks():
 #  4. Ideally, this file should only change when adding support for new GPUs,
 #     because newer versions of firmware images should have the same filename
 #     as previous versions.
-def whence(gsp_origin = None):
+def whence():
     global outputpath
-    global version
-
-    if gsp_origin is None:
-        gsp_origin = f"NVIDIA-Linux-x86_64-{version}.run"
 
     whence = []
     for dirpath, dirnames, filenames in os.walk(f"{outputpath}/nvidia"):  # followlinks=False by default
@@ -893,7 +906,9 @@ def main():
         parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
 
     args.output = os.path.abspath(args.output)
-    if args.driver is not None and args.driver != '' and not re.search('^http[s]://', args.driver):
+
+    # If args.driver is a file or path, normalize it before the chdir.
+    if args.driver and not re.search('^https?://', args.driver):
         args.driver = os.path.abspath(args.driver)
 
     args.input = os.path.abspath(args.input)
@@ -978,41 +993,14 @@ def main():
         gsp_bootloader("gr100", args.debug_fused)
         fmc("gr100", args.debug_fused)
 
-    gsp_origin = None
-
     if args.driver is not None:
-        if args.driver == '':
-            # No path/url provided, so make a guess of the URL
-            # to automatically download the right version.
-            args.driver = f'https://download.nvidia.com/XFree86/Linux-x86_64/{version}/NVIDIA-Linux-x86_64-{version}.run'
-
-        if re.search('^http[s]://', args.driver):
-            with tempfile.NamedTemporaryFile(prefix = f'NVIDIA-Linux-x86_64-{version}-', suffix = '.run') as f:
-                print(f"Downloading driver from {args.driver} as {f.name}")
-                try:
-                    urllib.request.urlretrieve(args.driver, f.name)
-                except urllib.error.HTTPError as e:
-                    if e.code == 404:
-                        raise MyException(f"Driver version {version} not found at download.nvidia.com.")
-                    raise MyException(f"Failed to download {args.driver}: HTTP {e.code} {e.reason}")
-                except urllib.error.URLError as e:
-                    raise MyException(f"Failed to download {args.driver}: {e.reason}")
-
-                gsp_firmware_from_run(f.name)
-        elif os.path.isdir(args.driver):
-            gsp_firmware_from_build(os.path.abspath(args.driver))
-            gsp_origin = f"local build ({args.driver})"
-        else:
-            if not os.path.exists(args.driver):
-                raise MyException(f"File {args.driver} does not exist.")
-
-            gsp_firmware_from_run(args.driver)
+        driver(args.driver)
 
     if args.symlink:
         symlinks()
 
     if args.whence:
-        whence(gsp_origin)
+        whence()
 
 if __name__ == "__main__":
     try:
