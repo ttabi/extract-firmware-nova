@@ -71,7 +71,7 @@ class TLV:
         # Integers are a special case, as they have no "length" in Python
         if isinstance(value, int):
             # Reject negative numbers and integers larger than 64-bit
-            if not (0 <= value <= 0xFFFFFFFFFFFFFFFF):
+            if not 0 <= value <= 0xFFFFFFFFFFFFFFFF:
                 raise MyException(f"TLV tag '{tag}' in {filename} integer value {value} out of range")
         else:
             if len(value) == 0:
@@ -788,25 +788,25 @@ def symlinks():
                     print(f"Warning: symlink {full} -> {target} does not point to a file in a {subdir}/ directory")
 
         # Verify that we have the necessary files or links for every GPU.
-        for dir in [entry.name for entry in os.scandir(".") if entry.is_dir()]:
-            if not os.path.exists(f"{dir}/{subdir}/gsp.bin"):
-                print(f"Warning: {dir}/{subdir}/gsp.bin is missing")
-            if not os.path.exists(f"{dir}/{subdir}/gsp.tlv"):
-                print(f"Warning: {dir}/{subdir}/gsp.tlv is missing")
-            if os.path.islink(f"{dir}/{subdir}/gsp.tlv"):
-                print(f"Warning: {dir}/{subdir}/gsp.tlv should not be a symlink")
-            if not os.path.exists(f"{dir}/{subdir}/gsp_bootloader.tlv"):
-                print(f"Warning: {dir}/{subdir}/gsp_bootloader.tlv is missing")
+        for d in [entry.name for entry in os.scandir(".") if entry.is_dir()]:
+            if not os.path.exists(f"{d}/{subdir}/gsp.bin"):
+                print(f"Warning: {d}/{subdir}/gsp.bin is missing")
+            if not os.path.exists(f"{d}/{subdir}/gsp.tlv"):
+                print(f"Warning: {d}/{subdir}/gsp.tlv is missing")
+            if os.path.islink(f"{d}/{subdir}/gsp.tlv"):
+                print(f"Warning: {d}/{subdir}/gsp.tlv should not be a symlink")
+            if not os.path.exists(f"{d}/{subdir}/gsp_bootloader.tlv"):
+                print(f"Warning: {d}/{subdir}/gsp_bootloader.tlv is missing")
 
-            has_load = os.path.exists(f"{dir}/{subdir}/booter_load.tlv");
-            has_unload = os.path.exists(f"{dir}/{subdir}/booter_unload.tlv");
-            has_fmc = os.path.exists(f"{dir}/{subdir}/fmc.tlv");
+            has_load = os.path.exists(f"{d}/{subdir}/booter_load.tlv")
+            has_unload = os.path.exists(f"{d}/{subdir}/booter_unload.tlv")
+            has_fmc = os.path.exists(f"{d}/{subdir}/fmc.tlv")
             if has_load != has_unload:
-                print(f"Warning: {dir}/{subdir}/ booter_load requires booter_unload, and vice versa")
+                print(f"Warning: {d}/{subdir}/ booter_load requires booter_unload, and vice versa")
             if not has_load and not has_fmc:
-                print(f"Warning: {dir}/{subdir}/ must have booter or fmc")
+                print(f"Warning: {d}/{subdir}/ must have booter or fmc")
             if has_load and has_fmc:
-                print(f"Warning: {dir}/{subdir}/ must not have both booter and fmc")
+                print(f"Warning: {d}/{subdir}/ must not have both booter and fmc")
 
     finally:
         os.chdir(prev_cwd)
