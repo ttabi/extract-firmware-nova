@@ -236,17 +236,28 @@ def is_supported(gpu):
     return True
 
 # Create a symlink, deleting the existing file/link if necessary
-def symlink(dest, source, target_is_directory = False):
+def symlink(dest: str, source: str, target_is_directory = False):
     import errno
 
+    # To ensure clean symlinks, remove any trailing slashes that may have
+    # been added because of format strings.
+    source = source.rstrip("/")
+    dest = dest.rstrip("/")
+
+    if os.path.isabs(dest):
+        # We can verify that the target exists if it's an absolute path
+        if not os.path.exists(dest):
+            raise MyException(f"symlink target {dest} for {source} does not exist")
+        dest = os.path.relpath(dest, start = os.path.dirname(os.path.abspath(source)))
+
     try:
-        os.symlink(dest, source, target_is_directory = target_is_directory)
+        os.symlink(dest, source, target_is_directory)
     except OSError as e:
         if e.errno == errno.EEXIST:
             os.remove(source)
-            os.symlink(dest, source, target_is_directory = target_is_directory)
+            os.symlink(dest, source, target_is_directory)
         else:
-            raise e
+            raise
 
 # Verify the .run file and extract its contents to the given temp directory
 def extract_run_file(runfile, tempdir):
