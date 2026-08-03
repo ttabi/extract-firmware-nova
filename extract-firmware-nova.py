@@ -754,8 +754,9 @@ def symlinks():
             symlink('gb202', d, target_is_directory = True)
 
         # Rubin
-        for d in ['gr102']:
-            symlink('gr100', d, target_is_directory = True)
+        if os.path.exists('gr100'):
+            for d in ['gr102']:
+                symlink('gr100', d, target_is_directory = True)
 
         # Handle gsp.bin and gsp.tlv for all remaining paths.
         root = Path(".")
