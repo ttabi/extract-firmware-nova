@@ -106,21 +106,21 @@ class TLV:
 
         with open(os.path.join(outputpath, "nvidia", nvidiadir, self.gpu, subdir,
                                f"{self.filename}.tlv"), "wb") as f:
-            f.write(struct.pack('4s', b"NVFW"))
+            f.write(struct.pack("4s", b"NVFW"))
 
             for tag, value in self.entries:
                 # Convert strings and integers into bytearrays
                 if isinstance(value, str):
                     # TLV strings are not null-terminated.
-                    value = value.encode('ascii')
+                    value = value.encode("ascii")
                 elif isinstance(value, int):
                     # Support 32-bit and 64-bit integers
-                    value = struct.pack('<I' if value < 0x100000000 else '<Q', value)
+                    value = struct.pack("<I" if value < 0x100000000 else "<Q", value)
 
-                f.write(struct.pack('<4sI', tag.encode('ascii'), len(value)))
+                f.write(struct.pack("<4sI", tag.encode("ascii"), len(value)))
                 f.write(value)
                 # Add padding bytes if necessary
-                f.write(b'\x00' * ((-len(value)) % 4))
+                f.write(b"\x00" * ((-len(value)) % 4))
 
 # -------------------------------------------------------------------
 # Read ELF images
@@ -128,12 +128,12 @@ class TLV:
 
 class ELF64:
     EI_NIDENT = 16
-    ELF_MAGIC = b'\x7fELF'
+    ELF_MAGIC = b"\x7fELF"
     ELFCLASS64 = 2
 
     def __init__(self, filename: str):
         self.filename = filename
-        with open(filename, 'rb') as f:
+        with open(filename, "rb") as f:
             data = f.read()
 
         if len(data) < self.EI_NIDENT:
@@ -148,22 +148,22 @@ class ELF64:
         if data[5] != 1:
             raise MyException(f"{filename}: big-endian ELF files are not supported")
 
-        (e_shoff, e_shentsize, e_shnum, e_shstrndx) = struct.unpack_from('<Q10xHHH', data, 0x28)
+        (e_shoff, e_shentsize, e_shnum, e_shstrndx) = struct.unpack_from("<Q10xHHH", data, 0x28)
 
-        shstrtab_off = struct.unpack_from('<24xQ', data,
+        shstrtab_off = struct.unpack_from("<24xQ", data,
             e_shoff + e_shstrndx * e_shentsize)[0]
 
         self.sections = []
         for i in range(e_shnum):
             sh = e_shoff + i * e_shentsize
-            (sh_name, sh_offset, sh_size) = struct.unpack_from('<I20xQQ', data, sh)
+            (sh_name, sh_offset, sh_size) = struct.unpack_from("<I20xQQ", data, sh)
 
             name_start = shstrtab_off + sh_name
-            name_end = data.index(b'\x00', name_start)
-            name = data[name_start:name_end].decode('ascii')
+            name_end = data.index(b"\x00", name_start)
+            name = data[name_start:name_end].decode("ascii")
 
             # We only care about sections that start with ".fw"
-            if name.startswith('.fw'):
+            if name.startswith(".fw"):
                 self.sections.append((name, data[sh_offset:sh_offset + sh_size]))
 
             # as well as the ".note.gnu.build-id" section
@@ -197,11 +197,11 @@ def parse_c_value(value: str) -> int | bool:
     # NVOC stores booleans as "((NvBool)(0 == 0))" (true) and
     # "((NvBool)(0 != 0))" (false).  Drop the (NvBool) cast so that what remains
     # ("((0 == 0))" / "((0 != 0))") is valid Python that evaluates to True/False.
-    normalized = value.replace('(NvBool)', '')
+    normalized = value.replace("(NvBool)", "")
 
     # Strip integer suffixes from each numeric literal (hex or decimal) so that
     # Python can parse them, e.g. "0x10U" -> "0x10", "2048U" -> "2048".
-    normalized = re.sub(r'(0[xX][0-9a-fA-F]+|\d+)[uUlL]+', r'\1', normalized)
+    normalized = re.sub(r"(0[xX][0-9a-fA-F]+|\d+)[uUlL]+", r"\1", normalized)
     return eval(normalized)
 
 def parse_hal_field(filename: str, variable: str) -> dict:
@@ -209,7 +209,7 @@ def parse_hal_field(filename: str, variable: str) -> dict:
         text = f.read()
 
     # Locate the "// Hal field -- <variable>" marker that begins the block.
-    marker = re.search(rf'^[ \t]*//[ \t]*Hal field --[ \t]*{variable}[ \t]*\n',
+    marker = re.search(rf"^[ \t]*//[ \t]*Hal field --[ \t]*{variable}[ \t]*\n",
                        text, re.MULTILINE)
     if not marker:
         raise MyException(f"Could not find Hal field '{variable}' in {filename}")
@@ -221,16 +221,16 @@ def parse_hal_field(filename: str, variable: str) -> dict:
     # single assignment, so the only braces are the ones that delimit each body.
     pos = marker.end()
     while True:
-        open_brace = text.find('{', pos)
+        open_brace = text.find("{", pos)
         if open_brace == -1:
             raise MyException(f"Malformed Hal field '{variable}' in {filename}")
         # Branch bodies are never nested, so the body ends at the next '}'.
-        close_brace = text.find('}', open_brace)
+        close_brace = text.find("}", open_brace)
         if close_brace == -1:
             raise MyException(f"Malformed Hal field '{variable}' in {filename}")
         pos = close_brace + 1
         # Skip whitespace and "// ..." comments to see if another branch follows.
-        if not re.match(r'(?:\s|//[^\n]*\n)*else\b', text[pos:]):
+        if not re.match(r"(?:\s|//[^\n]*\n)*else\b", text[pos:]):
             break
     block = text[marker.end():pos]
 
@@ -240,16 +240,16 @@ def parse_hal_field(filename: str, variable: str) -> dict:
     # comment, immediately followed by a "{ pThis-><variable> = <value>; }" body.
     # re.DOTALL lets both the GPU list and the value span multiple lines.
     branch = re.compile(
-        rf'/\*\s*ChipHal:\s*(.*?)\s*\*/\s*'
-        rf'\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}',
+        rf"/\*\s*ChipHal:\s*(.*?)\s*\*/\s*"
+        rf"\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}",
         re.DOTALL)
     for gpus, value in branch.findall(block):
-        for gpu in gpus.split('|'):
+        for gpu in gpus.split("|"):
             result[gpu.strip().lower()] = parse_c_value(value)
 
     # The trailing "// default" / else branch is the catch-all.
     default = re.search(
-        rf'//\s*default\s*else\s*\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}',
+        rf"//\s*default\s*else\s*\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}",
         block, re.DOTALL)
     if default:
         result[None] = parse_c_value(default.group(1))
@@ -688,13 +688,13 @@ def gsp_firmware_from_build(gsp_build_dir):
 def driver(pathspec):
     global version
 
-    if pathspec == '':
+    if pathspec == "":
         # No path/url provided, so make a guess of the URL
         # to automatically download the right version.
-        pathspec = f'https://download.nvidia.com/XFree86/Linux-x86_64/{version}/NVIDIA-Linux-x86_64-{version}.run'
+        pathspec = f"https://download.nvidia.com/XFree86/Linux-x86_64/{version}/NVIDIA-Linux-x86_64-{version}.run"
 
-    if re.search('^https?://', pathspec):
-        with tempfile.NamedTemporaryFile(prefix = f'NVIDIA-Linux-x86_64-{version}-', suffix = '.run') as f:
+    if re.search("^https?://", pathspec):
+        with tempfile.NamedTemporaryFile(prefix = f"NVIDIA-Linux-x86_64-{version}-", suffix = ".run") as f:
             print(f"Downloading driver from {pathspec} as {f.name}")
             try:
                 urllib.request.urlretrieve(pathspec, f.name)
@@ -845,7 +845,7 @@ def symlinks():
                 continue
             resolved = os.path.normpath(os.path.join(dirpath, target))
             if subdir and os.path.basename(os.path.dirname(resolved)) != subdir:
-                print(f'Warning: symlink {full} -> {target} does not point to a file in a "{subdir}" directory')
+                print(f"Warning: symlink {full} -> {target} does not point to a file in a '{subdir}' directory")
 
     # Verify that we have the necessary files or links for every GPU.
     for d in [entry.name for entry in os.scandir(topdir) if entry.is_dir()]:
@@ -914,7 +914,7 @@ def whence():
 
     whence = sorted(whence, key=lambda s: s.split()[1])
 
-    with open(os.path.join(outputpath, "WHENCE.txt"), 'w') as f:
+    with open(os.path.join(outputpath, "WHENCE.txt"), "w") as f:
         f.writelines(whence)
 
     print(f"Created {os.path.join(outputpath, 'WHENCE.txt')}")
@@ -933,41 +933,41 @@ def main():
     global subdir
 
     parser = argparse.ArgumentParser(
-        description = 'Extract firmware binaries from the OpenRM git repository'
-        ' in a format expected by the Nova device drivers.',
-        epilog = 'Running as root and specifying -o /lib/firmware will install'
-        ' the firmware files directly where Nova expects them.'
-        ' The --revision option is useful for testing new firmware'
-        ' versions without changing Nova source code.'
-        ' The --driver option accepts a .run file path, a URL, or a local'
-        ' build output directory.  If -d is given with no argument, the .run'
-        ' file is downloaded automatically.')
-    parser.add_argument('-i', '--input', default = os.getcwd(),
-        help = 'Path to source directory (where version.mk exists)')
-    parser.add_argument('-o', '--output', default = os.path.join(os.getcwd(), '_out'),
-        help = 'Path to target directory (where files will be written)')
-    parser.add_argument('-r', '--revision',
-        help = 'Files will be named with this version number.')
-    parser.add_argument('--debug-fused', action='store_true',
-        help = 'Extract debug instead of production images.')
-    parser.add_argument('-d', '--driver',
-        nargs = '?', const = '',
-        help = 'Also extract GSP-RM firmware from a source.'
-        ' A URL or path to a .run driver package downloads or extracts it.'
-        ' A path to a local build output directory (e.g.'
-        ' drivers/resman/build/gsp/_out/Linux_amd64_release) copies'
-        ' the GSP firmware directly.  If -d is given with no argument,'
-        ' the .run file is downloaded automatically.')
-    parser.add_argument('-s', '--symlink', action='store_true',
-        help = 'Also create symlinks for all supported GPUs.  Requires -d option.')
-    parser.add_argument('-w', '--whence', action='store_true',
-        help = 'Also generate a WHENCE file.  Requires -d and -s options.')
+        description = "Extract firmware binaries from the OpenRM git repository"
+        " in a format expected by the Nova device drivers.",
+        epilog = "Running as root and specifying -o /lib/firmware will install"
+        " the firmware files directly where Nova expects them."
+        " The --revision option is useful for testing new firmware"
+        " versions without changing Nova source code."
+        " The --driver option accepts a .run file path, a URL, or a local"
+        " build output directory.  If -d is given with no argument, the .run"
+        " file is downloaded automatically.")
+    parser.add_argument("-i", "--input", default = os.getcwd(),
+        help = "Path to source directory (where version.mk exists)")
+    parser.add_argument("-o", "--output", default = os.path.join(os.getcwd(), "_out"),
+        help = "Path to target directory (where files will be written)")
+    parser.add_argument("-r", "--revision",
+        help = "Files will be named with this version number.")
+    parser.add_argument("--debug-fused", action="store_true",
+        help = "Extract debug instead of production images.")
+    parser.add_argument("-d", "--driver",
+        nargs = "?", const = "",
+        help = "Also extract GSP-RM firmware from a source."
+        " A URL or path to a .run driver package downloads or extracts it."
+        " A path to a local build output directory (e.g."
+        " drivers/resman/build/gsp/_out/Linux_amd64_release) copies"
+        " the GSP firmware directly.  If -d is given with no argument,"
+        " the .run file is downloaded automatically.")
+    parser.add_argument("-s", "--symlink", action="store_true",
+        help = "Also create symlinks for all supported GPUs.  Requires -d option.")
+    parser.add_argument("-w", "--whence", action="store_true",
+        help = "Also generate a WHENCE file.  Requires -d and -s options.")
     parser.add_argument("--nvidiadir", default = nvidiadir, type = alphanumeric,
         help = "Output directory top-level path, i.e. /lib/firmware/nvidia/{nvidiadir}/<gpu>/."
-        " Default: \"%(default)s\"")
+        " Default: '%(default)s'")
     parser.add_argument("--subdir", default = subdir, type = alphanumeric,
         help = "Output directory bottom-level path, i.e. /lib/firmware/nvidia/.../<gpu>/{subdir}."
-        " Default: \"%(default)s\"")
+        " Default: '%(default)s'")
 
     args = parser.parse_args()
 
@@ -985,7 +985,7 @@ def main():
         raise MyException("Symlinks should not be created in the linux-firmware repository")
 
     # If args.driver is a file or path, normalize it before the chdir.
-    if args.driver and not re.search('^https?://', args.driver):
+    if args.driver and not re.search("^https?://", args.driver):
         args.driver = os.path.abspath(args.driver)
 
     args.input = os.path.abspath(args.input)
@@ -997,7 +997,7 @@ def main():
     version = args.revision
     if not version:
         with open("version.mk") as f:
-            m = re.search(r'^NVIDIA_VERSION = ([^\s]+)', f.read(), re.MULTILINE)
+            m = re.search(r"^NVIDIA_VERSION = ([^\s]+)", f.read(), re.MULTILINE)
             if not m:
                 raise MyException("Could not find or parse NVIDIA_VERSION from version.mk")
             version = m.group(1)
@@ -1014,10 +1014,10 @@ def main():
     os.makedirs(os.path.join(outputpath, "nvidia"), exist_ok = True)
 
     # FIXME: These values are currently not used
-    if os.path.exists('src/nvidia/generated/g_gpu_arch_nvoc.c'):
+    if os.path.exists("src/nvidia/generated/g_gpu_arch_nvoc.c"):
         try:
-            bGpuArchIsZeroFb = parse_hal_field('src/nvidia/generated/g_gpu_arch_nvoc.c', 'bGpuArchIsZeroFb')
-            bGpuarchSupportsIgpuRg = parse_hal_field('src/nvidia/generated/g_gpu_arch_nvoc.c', 'bGpuarchSupportsIgpuRg')
+            bGpuArchIsZeroFb = parse_hal_field("src/nvidia/generated/g_gpu_arch_nvoc.c", "bGpuArchIsZeroFb")
+            bGpuarchSupportsIgpuRg = parse_hal_field("src/nvidia/generated/g_gpu_arch_nvoc.c", "bGpuarchSupportsIgpuRg")
         except Exception:
             pass
 
