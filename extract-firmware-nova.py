@@ -713,6 +713,44 @@ def driver(pathspec):
     else:
         raise MyException(f"{pathspec} does not exist or is unreadable.")
 
+# Two kinds of symlinks are created by the script: a symlink from one firmware file
+# for one GPU to the matching file for another GPU, or a symlink from the directory
+# of one GPU variant to its primary (e.g. GB203 -> GB202).
+# This function standardizes the process of making those links.
+
+# When linking one GPU to another, Nouveau compatibility must be considered.  For
+# Turing and Ampere, Nouveau created multiple subdirectories for each GPU that
+# includes non-GSP firmware files.  These other directories must not be touched.
+def link_gpu(dest_gpu: str, src_gpu: str, filename: str | None = None):
+    global outputpath
+    global nvidiadir
+    global subdir
+
+    if filename:
+        # We only support linking files to the same filename in another directory.
+        src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir, filename)
+        dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu, subdir, filename)
+        os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir), exist_ok = True)
+        symlink(dest, src, target_is_directory = False)
+    else:
+        # Directory symlinks can only be between GPU variants.
+        if src_gpu[:2] != dest_gpu[:2]:
+            raise MyException(f"Cannot link {src_gpu} to {dest_gpu}")
+
+        # Set to True if the directory hierarchy also has Nouveau binaries in it
+        # that might conflict.
+        has_nouveau = nvidiadir == ""
+
+        if has_nouveau and src_gpu.startswith(("tu", "ga")):
+            src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir)
+            dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu, subdir)
+            os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, src_gpu), exist_ok = True)
+        else:
+            src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu)
+            dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu)
+
+        symlink(dest, src, target_is_directory = True)
+
 # Create symlinks in the target directory for the other GPUs.  This mirrors
 # what the WHENCE file in linux-firmware does.
 def symlinks():
@@ -730,82 +768,65 @@ def symlinks():
     # from <gpu1>/gsp/ -> <gpu2>/gsp instead of just <gpu1> -> <gpu2>.
 
     # Turing / GA100
-    for d in ['tu104', 'tu106', 'tu116', 'tu117', 'ga100']:
-        os.makedirs(os.path.join(topdir, d), exist_ok = True)
+    for d in ["tu104", "tu106"]:
+        link_gpu("tu102", d)
 
-    for d in ['tu104', 'tu106']:
-        symlink(os.path.join(topdir, 'tu102', subdir), os.path.join(topdir, d, subdir), target_is_directory = True)
-
-    for d in ['tu117']:
-        symlink(os.path.join(topdir, 'tu116', subdir), os.path.join(topdir, d, subdir), target_is_directory = True)
+    for d in ["tu117"]:
+        link_gpu("tu116", d)
 
     # TU11x uses the same GSP bootloader as TU10x
-    symlink(os.path.join(topdir, 'tu102', subdir, 'gsp_bootloader.tlv'),
-            os.path.join(topdir, 'tu116', subdir, 'gsp_bootloader.tlv'))
+    link_gpu("tu102", "tu116", "gsp_bootloader.tlv")
 
     # TU11x and GA100 use the same generic bootloader as TU10x
-    symlink(os.path.join(topdir, 'tu102', subdir, 'gen_bootloader.tlv'),
-            os.path.join(topdir, 'tu116', subdir, 'gen_bootloader.tlv'))
-    symlink(os.path.join(topdir, 'tu102', subdir, 'gen_bootloader.tlv'),
-            os.path.join(topdir, 'ga100', subdir, 'gen_bootloader.tlv'))
+    link_gpu("tu102", "tu116", "gen_bootloader.tlv")
+    link_gpu("tu102", "ga100", "gen_bootloader.tlv")
 
     # Symlink the GSP-RM image for TU11x and GA100
-    symlink(os.path.join(topdir, 'tu102', subdir, 'gsp.bin'),
-            os.path.join(topdir, 'tu116', subdir, 'gsp.bin'))
-    symlink(os.path.join(topdir, 'tu102', subdir, 'gsp.bin'),
-            os.path.join(topdir, 'ga100', subdir, 'gsp.bin'))
+    link_gpu("tu102", "tu116", "gsp.bin")
+    link_gpu("tu102", "ga100", "gsp.bin")
 
     # Ampere
-    for d in ['ga103', 'ga104', 'ga106', 'ga107']:
-        os.makedirs(os.path.join(topdir, d), exist_ok = True)
-        symlink(os.path.join(topdir, 'ga102', subdir), os.path.join(topdir, d, subdir), target_is_directory = True)
+    for d in ["ga103", "ga104", "ga106", "ga107"]:
+        link_gpu("ga102", d)
 
     # Ada
-    for d in ['ad103', 'ad104', 'ad106', 'ad107']:
-        symlink(os.path.join(topdir, 'ad102'), os.path.join(topdir, d), target_is_directory = True)
+    for d in ["ad103", "ad104", "ad106", "ad107"]:
+        link_gpu("ad102", d)
 
     # Blackwell
-    for d in ['gb102']:
-        symlink(os.path.join(topdir, 'gb100'), os.path.join(topdir, d), target_is_directory = True)
+    for d in ["gb102"]:
+        link_gpu("gb100", d)
 
-    for d in ['gb203', 'gb205', 'gb206', 'gb207']:
-        symlink(os.path.join(topdir, 'gb202'), os.path.join(topdir, d), target_is_directory = True)
+    for d in ["gb203", "gb205", "gb206", "gb207"]:
+        link_gpu("gb202", d)
 
     # Rubin
-    if os.path.exists(os.path.join(topdir, 'gr100')):
-        for d in ['gr102']:
-            symlink(os.path.join(topdir, 'gr100'), os.path.join(topdir, d), target_is_directory = True)
+    if os.path.exists(os.path.join(topdir, "gr100")):
+        for d in ["gr102"]:
+            link_gpu("gr100", d)
 
     # Handle gsp.bin for all remaining paths.
     root = Path(topdir)
-    paths = [d for d in root.glob("*")
+    paths = [d.name for d in root.glob("*")
              if os.path.isdir(os.path.join(topdir, d, subdir))
              and not os.path.exists(os.path.join(topdir, d, subdir, "gsp.bin"))]
     for d in paths:
-        symlink(os.path.join(topdir, 'ga102', subdir, 'gsp.bin'),
-                os.path.join(topdir, d, subdir, 'gsp.bin'))
+        link_gpu("ga102", d, "gsp.bin")
 
     # Symlink the ucodes binaries, if they exist.
-    if os.path.exists(os.path.join('tu102', subdir, 'ucodes.bin')):
-        symlink(os.path.join(topdir, 'tu102', subdir, 'ucodes.bin'),
-                os.path.join(topdir, 'tu116', subdir, 'ucodes.bin'))
-        symlink(os.path.join(topdir, 'tu102', subdir, 'ucodes.bin'),
-                os.path.join(topdir, 'ga100', subdir, 'ucodes.bin'))
-        symlink(os.path.join(topdir, 'tu102', subdir, 'ucodes.tlv'),
-                os.path.join(topdir, 'tu116', subdir, 'ucodes.tlv'))
-        symlink(os.path.join(topdir, 'tu102', subdir, 'ucodes.tlv'),
-                os.path.join(topdir, 'ga100', subdir, 'ucodes.tlv'))
+    if os.path.exists(os.path.join(topdir, "tu102", subdir, "ucodes.bin")):
+        for d in ["tu116", "ga100"]:
+            link_gpu("tu102", d, "ucodes.bin")
+            link_gpu("tu102", d, "ucodes.tlv")
 
-    if os.path.exists(os.path.join(topdir, 'ga102', subdir, 'ucodes.bin')):
-        paths = [p for p in root.glob("*")
-                 if os.path.isdir(os.path.join(topdir, p, subdir))
-                 and not os.path.exists(os.path.join(topdir, p, subdir, "ucodes.bin"))
-                 and p.name != "ga102"]
+    if os.path.exists(os.path.join(topdir, "ga102", subdir, "ucodes.bin")):
+        paths = [d.name for d in root.glob("*")
+                 if os.path.isdir(os.path.join(topdir, d, subdir))
+                 and not os.path.exists(os.path.join(topdir, d, subdir, "ucodes.bin"))
+                 and d.name != "ga102"]
         for d in paths:
-            symlink(os.path.join(topdir, 'ga102', subdir, 'ucodes.bin'),
-                    os.path.join(topdir, d, subdir, 'ucodes.bin'))
-            symlink(os.path.join(topdir, 'ga102', subdir, 'ucodes.tlv'),
-                    os.path.join(topdir, d, subdir, 'ucodes.tlv'))
+            link_gpu("ga102", d, "ucodes.bin")
+            link_gpu("ga102", d, "ucodes.tlv")
 
     # Verify that there are no broken symlinks, and that every file
     # symlink points to a file inside a gsp/ directory.
@@ -843,7 +864,7 @@ def symlinks():
         if has_load != has_unload:
             print(f"Warning: {os.path.join(topdir, d, subdir)}/ booter_load requires booter_unload, and vice versa")
         if not has_load and not has_fmc:
-            print(f"Warning: {os.path.join(d, subdir)}/ must have booter or fmc")
+            print(f"Warning: {os.path.join(topdir, d, subdir)}/ must have booter or fmc")
         if has_load and has_fmc:
             print(f"Warning: {os.path.join(topdir, d, subdir)}/ must not have both booter and fmc")
 
