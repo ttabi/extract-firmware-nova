@@ -45,12 +45,21 @@ from extract_firmware_common import (
 
 # Newer firmware versions that Nova will support might have new files
 # that conflict with the symlinks for older firmware versions that
-# Nouveau supports.  To avoid these collisions, place all Nova images
-# in a new subdirectory.
-subdir = "gsp"
+# Nouveau supports.  To avoid these collisions, support placing all Nova
+# images in a new subdirectory.  The hierarchy looks like this:
+#
+# /lib/firmware/nvidia/{nvidiadir}/{gpu}/{subdir}/
+#
+# Command-line parameters can be used to override both path names.
+#
+# By default, this script creates a Nouveau-compatible hierarchy:
+# /lib/firmware/nvidia/{gpu}/gsp/
 
 # Top-level directory under "/lib/firmware/nvidia".
 nvidiadir = ""
+
+# Subdirectory name under the GPU name.
+subdir = "gsp"
 
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
@@ -92,10 +101,10 @@ class TLV:
         # Add the version last so that it's not iterated over every time
         self.add("VERS", version)
 
-        print(f"Creating {os.path.join('nvidia', self.gpu, subdir, f'{self.filename}.tlv')}")
-        os.makedirs(os.path.join(outputpath, "nvidia", self.gpu, subdir), exist_ok = True)
+        print(f"Creating {os.path.join('nvidia', nvidiadir, self.gpu, subdir, f'{self.filename}.tlv')}")
+        os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, self.gpu, subdir), exist_ok = True)
 
-        with open(os.path.join(outputpath, "nvidia", self.gpu, subdir,
+        with open(os.path.join(outputpath, "nvidia", nvidiadir, self.gpu, subdir,
                                f"{self.filename}.tlv"), "wb") as f:
             f.write(struct.pack('4s', b"NVFW"))
 
@@ -559,9 +568,9 @@ def fwimage_from_gsp_elf(filename: str, gpu: str):
 
     elf = ELF64(filename)
 
-    os.makedirs(os.path.join(outputpath, "nvidia", gpu, subdir), exist_ok = True)
+    os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, gpu, subdir), exist_ok = True)
 
-    with open(os.path.join(outputpath, "nvidia", gpu, subdir, "gsp.bin"), "wb") as f:
+    with open(os.path.join(outputpath, "nvidia", nvidiadir, gpu, subdir, "gsp.bin"), "wb") as f:
         f.write(elf.section(".fwimage"))
 
     print(f"Created {os.path.join(gpu, subdir, 'gsp.bin')} from {filename}")
@@ -599,10 +608,10 @@ def ucodes(gsp_source):
         tlv.add("FILE", "ucodes.bin")
         tlv.write()
 
-        os.makedirs(os.path.join(outputpath, "nvidia/tu102", subdir), exist_ok = True)
+        os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, "tu102", subdir), exist_ok = True)
         shutil.copyfile(tu10x_ucodes_src,
-                        os.path.join(outputpath, "nvidia/tu102", subdir, "ucodes.bin"))
-        print(f"Copied ucodes_tu10x.bin to {os.path.join('nvidia/tu102', subdir, 'ucodes.bin')}")
+                        os.path.join(outputpath, "nvidia", nvidiadir, "tu102", subdir, "ucodes.bin"))
+        print(f"Copied ucodes_tu10x.bin to {os.path.join('nvidia', nvidiadir, 'tu102', subdir, 'ucodes.bin')}")
 
     if os.path.exists(ga10x_ucodes_src):
         tlv = TLV("ucodes", "ga102")
@@ -610,10 +619,10 @@ def ucodes(gsp_source):
         tlv.add("FILE", "ucodes.bin")
         tlv.write()
 
-        os.makedirs(os.path.join(outputpath, "nvidia/ga102", subdir), exist_ok = True)
+        os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, "ga102", subdir), exist_ok = True)
         shutil.copyfile(ga10x_ucodes_src,
-                        os.path.join(outputpath, "nvidia/ga102", subdir, "ucodes.bin"))
-        print(f"Copied ucodes_ga10x.bin to {os.path.join('nvidia/ga102', subdir, 'ucodes.bin')}")
+                        os.path.join(outputpath, "nvidia", nvidiadir, "ga102", subdir, "ucodes.bin"))
+        print(f"Copied ucodes_ga10x.bin to {os.path.join('nvidia', nvidiadir, 'ga102', subdir, 'ucodes.bin')}")
 
 # Extract the GSP-RM binaries and create the TLV files for each GPU that has its own
 # .fwsignature section
@@ -635,11 +644,11 @@ def gsprm(tu10x_gsp_src, ga10x_gsp_src):
     gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
 
-    if os.path.isdir(os.path.join(outputpath, "nvidia/gb10b", subdir)):
+    if os.path.isdir(os.path.join(outputpath, "nvidia", nvidiadir, "gb10b", subdir)):
         gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
-    if os.path.isdir(os.path.join(outputpath, "nvidia/gb20b", subdir)):
+    if os.path.isdir(os.path.join(outputpath, "nvidia", nvidiadir, "gb20b", subdir)):
         gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
-    if os.path.isdir(os.path.join(outputpath, "nvidia/gr100", subdir)):
+    if os.path.isdir(os.path.join(outputpath, "nvidia", nvidiadir, "gr100", subdir)):
         gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
 # Extract the GSP-RM firmware from the .run file and copy the binaries
@@ -712,8 +721,8 @@ def symlinks():
     global subdir
     from pathlib import Path
 
-    print(f"Creating symlinks in {os.path.join(outputpath, 'nvidia')}")
     topdir = os.path.join(outputpath, "nvidia", nvidiadir)
+    print(f"Creating symlinks in {topdir}")
 
     # Nouveau supports Turing and Ampere without GSP-RM support, using separate firmware
     # files in the 'acr', 'gr', 'nvdec', and 'sec2' subdirectories, which are all
@@ -814,8 +823,8 @@ def symlinks():
             if os.path.isdir(full):
                 continue
             resolved = os.path.normpath(os.path.join(dirpath, target))
-            if os.path.basename(os.path.dirname(resolved)) != subdir:
-                print(f"Warning: symlink {full} -> {target} does not point to a file in a {subdir}/ directory")
+            if subdir and os.path.basename(os.path.dirname(resolved)) != subdir:
+                print(f'Warning: symlink {full} -> {target} does not point to a file in a "{subdir}" directory')
 
     # Verify that we have the necessary files or links for every GPU.
     for d in [entry.name for entry in os.scandir(topdir) if entry.is_dir()]:
@@ -889,9 +898,18 @@ def whence():
 
     print(f"Created {os.path.join(outputpath, 'WHENCE.txt')}")
 
+# ArgumentParser filter for alphanumeric parameters.
+def alphanumeric(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9]*", value):
+        raise argparse.ArgumentTypeError("must contain only alphanumeric characters")
+
+    return value
+
 def main():
     global outputpath
     global version
+    global nvidiadir
+    global subdir
 
     parser = argparse.ArgumentParser(
         description = 'Extract firmware binaries from the OpenRM git repository'
@@ -923,6 +941,12 @@ def main():
         help = 'Also create symlinks for all supported GPUs.  Requires -d option.')
     parser.add_argument('-w', '--whence', action='store_true',
         help = 'Also generate a WHENCE file.  Requires -d and -s options.')
+    parser.add_argument("--nvidiadir", default = nvidiadir, type = alphanumeric,
+        help = "Output directory top-level path, i.e. /lib/firmware/nvidia/{nvidiadir}/<gpu>/."
+        " Default: \"%(default)s\"")
+    parser.add_argument("--subdir", default = subdir, type = alphanumeric,
+        help = "Output directory bottom-level path, i.e. /lib/firmware/nvidia/.../<gpu>/{subdir}."
+        " Default: \"%(default)s\"")
 
     args = parser.parse_args()
 
@@ -959,6 +983,9 @@ def main():
 
     if not version.isascii():
         raise MyException(f"Version string {version} must not contain non-ASCII characters")
+
+    nvidiadir = args.nvidiadir
+    subdir = args.subdir
 
     print(f"Generating files for version {version}")
 
