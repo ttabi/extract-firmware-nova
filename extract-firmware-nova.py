@@ -184,9 +184,10 @@ class ELF64:
 # Each field is initialized with an if / else-if / else chain, where every if-branch
 # annotates its (possibly multi-line) condition with a "/* ChipHal: GPU1 | GPU2 | ... */"
 # comment listing the GPUs the branch applies to, and the trailing else is a catch-all
-# default.  This parses one such field and returns a dictionary mapping each GPU name (as
-# it appears in the comment, e.g. "TU102") to the value expression assigned for that GPU.
-# The catch-all default value is stored under the None key.
+# default.  Fields that do not vary by chip are instead assigned unconditionally, with no
+# if / else chain.  This parses one such field and returns a dictionary mapping each GPU
+# name (as it appears in the comment, e.g. "TU102") to the value expression assigned for
+# that GPU.  The catch-all default value is stored under the None key.
 
 # Parse a C integer constant expression and return its value.  Handles plain constants,
 # hex ("0x..."), and arbitrary arithmetic/bitwise expressions such as "((22U << 20) + (32U
@@ -530,12 +531,10 @@ def scrubber(gpu, sigsize, debug = False):
 
     tlv.write()
 
-# Unlike the other images, FMC firmware and its metadata are encapsulated in
-# an ELF image.  FMC metadata is simpler than the other firmware types, as it
-# comprises just three binary blobs.
+# Firmware Management Controller, replaces booter to load GSP-RM.
 def fmc(gpu: str, debug = False):
     fuse = "Debug" if debug else "Prod"
-    GPU=gpu.upper()
+    GPU = gpu.upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}.c"
 
     tlv = TLV("fmc", gpu)
@@ -575,10 +574,10 @@ def fwimage_from_gsp_elf(filename: str, gpu: str):
 
     print(f"Created {os.path.join(gpu, subdir, 'gsp.bin')} from {filename}")
 
-# Generate a gsp.tlv file that points to the correct GSP image
-# `elf` is the original ELF image from the .run file or build
-# `signame` is the name of the .fwsignature section to extract
-# `gpu` is the GPU name
+# Generate a gsp.tlv file that points to the correct GSP image.
+# `elf` is the original ELF image from the .run file or build.
+# `signame` is the name of the .fwsignature section to extract.
+# `gpu` is the GPU name.
 def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
     signature = elf.section(signame)
 
