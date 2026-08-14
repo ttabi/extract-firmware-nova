@@ -43,6 +43,12 @@ from extract_firmware_common import (
     extract_run_file,
 )
 
+# Where all the files will be written
+outputpath = ""
+
+# Version string
+version = ""
+
 # Newer firmware versions that Nova will support might have new files
 # that conflict with the symlinks for older firmware versions that
 # Nouveau supports.  To avoid these collisions, support placing all Nova
