@@ -67,6 +67,57 @@ nvidiadir = ""
 # Subdirectory name under the GPU name.
 subdir = "gsp"
 
+# Default HAL variables values for OpenRM version that lack an
+# up-to-date g_gpu_arch_nvoc.c.
+hals = {
+    'gspFwHeapBaseSize': {
+        'tu102': 104 << 20,
+        'tu104': 104 << 20,
+        'tu106': 104 << 20,
+        'tu116': 104 << 20,
+        'tu117': 104 << 20,
+        'ga100': 104 << 20,
+        'ga102': 111 << 20,
+        'ga103': 111 << 20,
+        'ga104': 111 << 20,
+        'ga106': 111 << 20,
+        'ga107': 111 << 20,
+        'ad102': 111 << 20,
+        'ad103': 111 << 20,
+        'ad104': 111 << 20,
+        'ad106': 111 << 20,
+        'ad107': 111 << 20,
+        'gh100': 121 << 20,
+        'gb100': 127 << 20,
+        'gb102': 127 << 20,
+        'gb10b': 127 << 20,
+        'gb110': 127 << 20,
+        'gb112': 127 << 20,
+        'gb202': 127 << 20,
+        'gb203': 127 << 20,
+        'gb205': 127 << 20,
+        'gb206': 127 << 20,
+        'gb207': 127 << 20,
+        'gb20b': 127 << 20,
+        'gb20c': 127 << 20,
+        'gr100': 141 << 20,
+        'gr102': 141 << 20,
+    },
+    'gspFwHeapSizePerGb': {
+        None: 96 << 10
+    },
+    'gspFwHeapBaseSizeVgpu': {
+        'gb202': 122 << 20,
+        None: 101 << 20
+    },
+    'gspFwHeapSizePerVm': {
+        'gb202': 26 << 20,
+        'gr100': 36 << 20,
+        'gr102': 36 << 20,
+        None: 15 << 20,
+    },
+}
+
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
 # -------------------------------------------------------------------
@@ -211,57 +262,85 @@ def parse_c_value(value: str) -> int | bool:
     normalized = re.sub(r"(0[xX][0-9a-fA-F]+|\d+)[uUlL]+", r"\1", normalized)
     return eval(normalized)
 
-def parse_hal_field(filename: str, variable: str) -> dict:
+def hal_fields() -> dict:
+    filename = "src/nvidia/generated/g_gpu_arch_nvoc.c"
+
     with open(filename) as f:
         text = f.read()
 
-    # Locate the "// Hal field -- <variable>" marker that begins the block.
-    marker = re.search(rf"^[ \t]*//[ \t]*Hal field --[ \t]*{variable}[ \t]*\n",
-                       text, re.MULTILINE)
-    if not marker:
-        raise MyException(f"Could not find Hal field '{variable}' in {filename}")
-
-    # The field is initialized by a single if / else-if / else statement that begins right
-    # after the marker.  Walk its brace-delimited branch bodies to find where the
-    # statement ends: the chain continues only while a closing brace is followed by
-    # another "else".  Branch conditions contain only parentheses and bodies contain a
-    # single assignment, so the only braces are the ones that delimit each body.
-    pos = marker.end()
-    while True:
-        open_brace = text.find("{", pos)
-        if open_brace == -1:
-            raise MyException(f"Malformed Hal field '{variable}' in {filename}")
-        # Branch bodies are never nested, so the body ends at the next '}'.
-        close_brace = text.find("}", open_brace)
-        if close_brace == -1:
-            raise MyException(f"Malformed Hal field '{variable}' in {filename}")
-        pos = close_brace + 1
-        # Skip whitespace and "// ..." comments to see if another branch follows.
-        if not re.match(r"(?:\s|//[^\n]*\n)*else\b", text[pos:]):
-            break
-    block = text[marker.end():pos]
-
+    pattern = re.compile(r"^[ \t]*//[ \t]*Hal field --[ \t]*([a-zA-Z]+)[ \t]*\n", re.MULTILINE)
     result = {}
 
-    # Each if / else-if branch ends its condition with a "/* ChipHal: GPU1 | GPU2 | ... */"
-    # comment, immediately followed by a "{ pThis-><variable> = <value>; }" body.
-    # re.DOTALL lets both the GPU list and the value span multiple lines.
-    branch = re.compile(
-        rf"/\*\s*ChipHal:\s*(.*?)\s*\*/\s*"
-        rf"\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}",
-        re.DOTALL)
-    for gpus, value in branch.findall(block):
-        for gpu in gpus.split("|"):
-            result[gpu.strip().lower()] = parse_c_value(value)
+    for marker in pattern.finditer(text):
+        variable = marker.group(1)
+        print(f"{variable=}")
 
-    # The trailing "// default" / else branch is the catch-all.
-    default = re.search(
-        rf"//\s*default\s*else\s*\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}",
-        block, re.DOTALL)
-    if default:
-        result[None] = parse_c_value(default.group(1))
+        # Fields that have the same value on every chip are assigned unconditionally, with
+        # no if / else chain at all, so the value is the catch-all default.
+        unconditional = re.compile(rf"\s*pThis->{variable}\s*=\s*(.*?);", re.DOTALL)
+        assignment = unconditional.match(text, marker.end())
+        if assignment:
+            result[variable] = {None: parse_c_value(assignment.group(1))}
+            continue
+
+        # Otherwise the field is initialized by a single if / else-if / else statement that begins right
+        # after the marker.  Walk its brace-delimited branch bodies to find where the
+        # statement ends: the chain continues only while a closing brace is followed by
+        # another "else".  Branch conditions contain only parentheses and bodies contain a
+        # single assignment, so the only braces are the ones that delimit each body.
+        pos = marker.end()
+        while True:
+            open_brace = text.find("{", pos)
+            if open_brace == -1:
+                raise MyException(f"Malformed Hal field '{variable}' in {filename}")
+            # Branch bodies are never nested, so the body ends at the next '}'.
+            close_brace = text.find("}", open_brace)
+            if close_brace == -1:
+                raise MyException(f"Malformed Hal field '{variable}' in {filename}")
+            pos = close_brace + 1
+            # Skip whitespace and "// ..." comments to see if another branch follows.
+            if not re.match(r"(?:\s|//[^\n]*\n)*else\b", text[pos:]):
+                break
+        block = text[marker.end():pos]
+
+        field = {}
+        # Each if / else-if branch ends its condition with a "/* ChipHal: GPU1 | GPU2 | ... */"
+        # comment, immediately followed by a "{ pThis-><variable> = <value>; }" body.
+        # re.DOTALL lets both the GPU list and the value span multiple lines.
+        branch = re.compile(
+            rf"/\*\s*ChipHal:\s*(.*?)\s*\*/\s*"
+            rf"\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}",
+            re.DOTALL)
+        for gpus, value in branch.findall(block):
+            for gpu in gpus.split("|"):
+                field[gpu.strip().lower()] = parse_c_value(value)
+
+        # The trailing "// default" / else branch is the catch-all.
+        default = re.search(
+            rf"//\s*default\s*else\s*\{{\s*pThis->{variable}\s*=\s*(.*?);\s*\}}",
+            block, re.DOTALL)
+        if default:
+            field[None] = parse_c_value(default.group(1))
+
+        result[variable] = field
 
     return result
+
+# Look up the value of a HAL field for one GPU.  Fields that have the same value on most
+# chips only list the exceptions, so the None key, when present, holds the catch-all
+# default that applies to every GPU without an entry of its own.
+def hal_value(field: str, gpu: str) -> int | bool:
+    if field not in hals:
+        raise MyException(f"HAL field '{field}' is not defined")
+
+    values = hals[field]
+
+    if gpu in values:
+        return values[gpu]
+    if None in values:
+        return values[None]
+
+    raise MyException(f"HAL field '{field}' has no value for {gpu} and no default")
 
 # -------------------------------------------------------------------
 # Generate firmware binaries
@@ -591,6 +670,12 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
     tlv.add("SIGN", signature)
     tlv.add("SIZE", len(elf.section(".fwimage")))
     tlv.add("FILE", "gsp.bin")
+
+    # Also pick up the HAL variables
+    tlv.add("HBSZ", hal_value('gspFwHeapBaseSize', gpu))
+    tlv.add("HSPG", hal_value('gspFwHeapSizePerGb', gpu))
+    tlv.add("HBSV", hal_value('gspFwHeapBaseSizeVgpu', gpu))
+    tlv.add("HSPV", hal_value('gspFwHeapSizePerVm', gpu))
 
     # The ".note.gnu.build-id" section contains a 16-byte ELF note header
     # followed by the 20-byte build ID.
@@ -936,6 +1021,7 @@ def main():
     global version
     global nvidiadir
     global subdir
+    global hals
 
     parser = argparse.ArgumentParser(
         description = "Extract firmware binaries from the OpenRM git repository"
@@ -1018,14 +1104,6 @@ def main():
     print(f"Writing files to {outputpath}")
     os.makedirs(os.path.join(outputpath, "nvidia"), exist_ok = True)
 
-    # FIXME: These values are currently not used
-    if os.path.exists("src/nvidia/generated/g_gpu_arch_nvoc.c"):
-        try:
-            bGpuArchIsZeroFb = parse_hal_field("src/nvidia/generated/g_gpu_arch_nvoc.c", "bGpuArchIsZeroFb")
-            bGpuarchSupportsIgpuRg = parse_hal_field("src/nvidia/generated/g_gpu_arch_nvoc.c", "bGpuarchSupportsIgpuRg")
-        except Exception:
-            pass
-
     # The generic bootloader is only defined for TU102 but is used
     # by all TU1xx and GA100.
     generic_bootloader("tu102")
@@ -1076,7 +1154,14 @@ def main():
         gsp_bootloader("gr100", args.debug_fused)
         fmc("gr100", args.debug_fused)
 
+    # Extract gsp.bin and create gsp.tlv
     if args.driver is not None:
+        # We only need to read the HALs if we're generating gsp.tlv
+        if os.path.exists("src/nvidia/generated/g_gpu_arch_nvoc.c"):
+            # Some versions of the HAL file are incomplete, so we must augment
+            # the default values instead of replacing them.
+            hals.update(hal_fields())
+
         driver(args.driver)
 
     if args.symlink:
