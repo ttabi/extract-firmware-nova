@@ -67,6 +67,37 @@ nvidiadir = ""
 # Subdirectory name under the GPU name.
 subdir = "gsp"
 
+# List of all supported GPUs.  This hard-coded list is for the earliest
+# GSP-RM version supported (r570).  Additional GPUs are added at runtime.
+# This array is used to make sure that the files for all supported GPUs
+# are present and correct.
+supported = [
+    "tu102",
+    "tu104",
+    "tu106",
+    "tu116",
+    "tu117",
+    "ga100",
+    "ga102",
+    "ga103",
+    "ga104",
+    "ga106",
+    "ga107",
+    "ad102",
+    "ad103",
+    "ad104",
+    "ad106",
+    "ad107",
+    "gh100",
+    "gb100",
+    "gb102",
+    "gb202",
+    "gb203",
+    "gb205",
+    "gb206",
+    "gb207"
+]
+
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
 # -------------------------------------------------------------------
@@ -873,6 +904,25 @@ def symlinks():
         if has_load and has_fmc:
             print(f"Warning: {os.path.join(topdir, d, subdir)}/ must not have both booter and fmc")
 
+    # Verify that we have entries for each supported gpu
+    for gpu in supported:
+        if not os.path.exists(os.path.join(topdir, gpu, subdir, "gsp.bin")):
+            print(f"Warning: {os.path.join(topdir, gpu, subdir, 'gsp.bin')} is missing")
+        if not os.path.exists(os.path.join(topdir, gpu, subdir, "gsp.tlv")):
+            print(f"Warning: {os.path.join(topdir, gpu, subdir, 'gsp.tlv')} is missing")
+        if not os.path.exists(os.path.join(topdir, gpu, subdir, "gsp_bootloader.tlv")):
+            print(f"Warning: {os.path.join(topdir, gpu, subdir, 'gsp_bootloader.tlv')} is missing")
+
+        has_load = os.path.exists(os.path.join(topdir, gpu, subdir, "booter_load.tlv"))
+        has_unload = os.path.exists(os.path.join(topdir, gpu, subdir, "booter_unload.tlv"))
+        has_fmc = os.path.exists(os.path.join(topdir, gpu, subdir, "fmc.tlv"))
+        if has_load != has_unload:
+            print(f"Warning: {os.path.join(topdir, gpu, subdir)}/ booter_load requires booter_unload, and vice versa")
+        if not has_load and not has_fmc:
+            print(f"Warning: {os.path.join(topdir, gpu, subdir)}/ must have booter or fmc")
+        if has_load and has_fmc:
+            print(f"Warning: {os.path.join(topdir, gpu, subdir)}/ must not have both booter and fmc")
+
 # Create a text file that can be inserted as-is to the WHENCE file of the linux-firmware
 # git repository.
 #
@@ -895,7 +945,7 @@ def symlinks():
 #  3. Replacing a file/directory with a symlink (or vice versa) is strongly
 #     discouraged.  Many distros cannot handle this transition.
 #  4. Ideally, this file should only change when adding support for new GPUs,
-#     because newer versions of firmware images should have the same filename
+#     because newer versions of firmware images should have the same filenames
 #     as previous versions.
 def whence():
     global outputpath
@@ -1060,6 +1110,7 @@ def main():
 
     # GB10B (Jetson Thor) support was added in r580
     if is_supported("gb10b"):
+        supported.append("gb10b")
         gsp_bootloader("gb10b", args.debug_fused)
         fmc("gb10b", args.debug_fused)
 
@@ -1068,11 +1119,13 @@ def main():
 
     # GB20B (N1X) support was added in r580
     if is_supported("gb20b"):
+        supported.append("gb20b")
         gsp_bootloader("gb20b", args.debug_fused)
         fmc("gb20b", args.debug_fused)
 
     # GR100 support was added in r610
     if is_supported("gr100"):
+        supported.extend(["gr100", "gr102"])
         gsp_bootloader("gr100", args.debug_fused)
         fmc("gr100", args.debug_fused)
 
