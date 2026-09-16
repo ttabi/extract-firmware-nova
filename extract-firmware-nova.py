@@ -906,6 +906,7 @@ def main():
     global subdir
 
     parser = argparse.ArgumentParser(
+        allow_abbrev = False,
         description = "Extract firmware binaries from the OpenRM git repository"
         " in a format expected by the Nova device drivers.",
         epilog = "Running as root and specifying -o /lib/firmware will install"
@@ -917,7 +918,7 @@ def main():
         " file is downloaded automatically.")
     parser.add_argument("-i", "--input", default = os.getcwd(),
         help = "Path to source directory (where version.mk exists)")
-    parser.add_argument("-o", "--output", default = os.path.join(os.getcwd(), "_out"),
+    parser.add_argument("-o", "--output", default = None,
         help = "Path to target directory (where files will be written)")
     parser.add_argument("-r", "--revision",
         help = "Files will be named with this version number.")
@@ -942,6 +943,11 @@ def main():
         help = "Output directory bottom-level path, i.e. /lib/firmware/nvidia/.../<gpu>/{subdir}."
         " Default: '%(default)s'")
 
+    # Undocumented, dangerous option. If set, this will blindly erase the target directory.
+    # For example, `-o /lib/firmware --clean` will trash your /lib/firmware and make your system
+    # unbootable.  For safety, this requires the -o option.
+    parser.add_argument("--clean", action = "store_true", help = argparse.SUPPRESS)
+
     args = parser.parse_args()
 
     if args.symlink and args.driver is None:
@@ -949,7 +955,10 @@ def main():
     if args.whence and (args.driver is None or not args.symlink):
         parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
 
-    outputpath = os.path.abspath(args.output)
+    if args.clean and args.output is None:
+        parser.error("--clean requires -o/--output")
+
+    outputpath = os.path.abspath(args.output or os.path.join(os.getcwd(), "_out"))
 
     # Symlinks should not be created in the linux-firmware git repository, because
     # it uses the WHENCE file to create symlinks.  Check for that, to avoid
@@ -984,7 +993,11 @@ def main():
     print(f"Generating files for version {version}")
 
     print(f"Writing files to {outputpath}")
-    os.makedirs(os.path.join(outputpath, "nvidia"), exist_ok = True)
+    if os.path.isdir(outputpath) and os.listdir(outputpath):
+        print("Warning: directory already exists and is not empty")
+    if args.clean:
+        shutil.rmtree(outputpath, ignore_errors = True)
+    os.makedirs(outputpath, exist_ok = True)
 
     # The generic bootloader is only defined for TU102 but is used
     # by all TU1xx and GA100.
