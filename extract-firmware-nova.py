@@ -579,7 +579,7 @@ def ucodes(gsp_source):
         print(f"Copied ucodes_ga10x.bin to {os.path.join('nvidia', nvidiadir, 'ga102', subdir, 'ucodes.bin')}")
 
 # Extract the GSP-RM binaries and create the TLV files for each GPU that has its own
-# .fwsignature section
+# .fwsignature section.
 def gsprm(tu10x_gsp_src, ga10x_gsp_src):
     global outputpath
 
@@ -999,6 +999,18 @@ def main():
         shutil.rmtree(outputpath, ignore_errors = True)
     os.makedirs(outputpath, exist_ok = True)
 
+    # GB10B (Jetson Thor) support was added in r580
+    if is_supported("gb10b"):
+        supported.append("gb10b")
+
+    # GB20B (N1X) support was added in r580
+    if is_supported("gb20b"):
+        supported.append("gb20b")
+
+    # GR100 support was added in r610
+    if is_supported("gr100"):
+        supported.extend(["gr100", "gr102"])
+
     # The generic bootloader is only defined for TU102 but is used
     # by all TU1xx and GA100.
     generic_bootloader("tu102")
@@ -1031,24 +1043,18 @@ def main():
     gsp_bootloader("gb100", args.debug_fused)
     fmc("gb100", args.debug_fused)
 
-    # GB10B (Jetson Thor) support was added in r580
-    if is_supported("gb10b"):
-        supported.append("gb10b")
-        gsp_bootloader("gb10b", args.debug_fused)
-        fmc("gb10b", args.debug_fused)
-
     gsp_bootloader("gb202", args.debug_fused)
     fmc("gb202", args.debug_fused)
 
-    # GB20B (N1X) support was added in r580
-    if is_supported("gb20b"):
-        supported.append("gb20b")
+    if "gb10b" in supported:
+        gsp_bootloader("gb10b", args.debug_fused)
+        fmc("gb10b", args.debug_fused)
+
+    if "gb20b" in supported:
         gsp_bootloader("gb20b", args.debug_fused)
         fmc("gb20b", args.debug_fused)
 
-    # GR100 support was added in r610
-    if is_supported("gr100"):
-        supported.extend(["gr100", "gr102"])
+    if "gr100" in supported:
         gsp_bootloader("gr100", args.debug_fused)
         fmc("gr100", args.debug_fused)
 
@@ -1067,4 +1073,12 @@ if __name__ == "__main__":
     except MyException as e:
         # The full stack trace is too noisy with MyException
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+
+        # os._exit() reports the failure without raising SystemExit the way sys.exit()
+        # would, but it also skips the flush that the interpreter would otherwise do on
+        # the way out.  Stdout is block buffered whenever it is not a terminal, so both
+        # streams have to be flushed by hand or a redirected run loses the output that
+        # explains the failure.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1)
