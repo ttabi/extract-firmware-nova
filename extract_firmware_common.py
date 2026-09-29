@@ -28,11 +28,21 @@
 
 import os
 import re
+import sys
 import gzip
 import struct
 
 class MyException(Exception):
-    pass
+    # Remember the filename and line number
+    def __init__(self, *args):
+        super().__init__(*args)
+        # Frame 1 is the caller of __init__, which is the 'raise' statement
+        frame = sys._getframe(1)
+        self.filename = os.path.splitext(os.path.basename(frame.f_code.co_filename))[0]
+        self.lineno = frame.f_lineno
+
+    def __str__(self):
+        return f"{self.filename}:{self.lineno}: {super().__str__()}"
 
 def round_up_to_base(x, base = 10):
     return x + (base - x) % base
