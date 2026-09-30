@@ -598,11 +598,11 @@ def gsprm(tu10x_gsp_src, ga10x_gsp_src):
     gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
     gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
 
-    if os.path.isdir(os.path.join(outputpath, "nvidia", nvidiadir, "gb10b", subdir)):
+    if "gb10b" in supported:
         gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
-    if os.path.isdir(os.path.join(outputpath, "nvidia", nvidiadir, "gb20b", subdir)):
+    if "gb20b" in supported:
         gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
-    if os.path.isdir(os.path.join(outputpath, "nvidia", nvidiadir, "gr100", subdir)):
+    if "gr100" in supported:
         gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
 
 # Extract the GSP-RM firmware from the .run file and copy the binaries
