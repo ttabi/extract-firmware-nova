@@ -254,6 +254,13 @@ def symlink(dest: str, source: str, target_is_directory = False):
     source = source.rstrip("/")
     dest = dest.rstrip("/")
 
+    # If `source` exists and is a directory, then something is wrong and
+    # we cannot continue.  This might occur if the script is re-run with a
+    # different OpenRM version but without cleaning the target, but it usually
+    # indicates a bug in the code.
+    if os.path.isdir(source) and not os.path.islink(source):
+        raise MyException(f"symlink source {source} already exists as a normal directory")
+
     if os.path.isabs(dest):
         # We can verify that the target exists if it's an absolute path
         if not os.path.exists(dest):
@@ -263,11 +270,11 @@ def symlink(dest: str, source: str, target_is_directory = False):
     try:
         os.symlink(dest, source, target_is_directory)
     except OSError as e:
-        if e.errno == errno.EEXIST:
-            os.remove(source)
-            os.symlink(dest, source, target_is_directory)
-        else:
+        if e.errno != errno.EEXIST:
             raise
+        # If the symlink already exists (EEXIST), then just remove it and replace it.
+        os.remove(source)
+        os.symlink(dest, source, target_is_directory)
 
 # Verify the .run file and extract its contents to the given temp directory
 def extract_run_file(runfile, tempdir):
