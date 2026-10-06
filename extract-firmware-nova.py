@@ -995,8 +995,18 @@ def main():
     print(f"Writing files to {outputpath}")
     if os.path.isdir(outputpath) and os.listdir(outputpath):
         print("Warning: directory already exists and is not empty")
+
     if args.clean:
+        # Aggressively try to delete the output directory.
+        try:
+            os.remove(outputpath)
+        except OSError:
+            pass
         shutil.rmtree(outputpath, ignore_errors = True)
+
+        if os.path.lexists(outputpath):
+            raise MyException(f"Could not delete {outputpath}")
+
     os.makedirs(outputpath, exist_ok = True)
 
     # GB10B (Jetson Thor) support was added in r580
