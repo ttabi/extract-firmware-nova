@@ -1086,9 +1086,20 @@ if __name__ == "__main__":
 
         # os._exit() reports the failure without raising SystemExit the way sys.exit()
         # would, but it also skips the flush that the interpreter would otherwise do on
-        # the way out.  Stdout is block buffered whenever it is not a terminal, so both
-        # streams have to be flushed by hand or a redirected run loses the output that
-        # explains the failure.
-        sys.stdout.flush()
-        sys.stderr.flush()
+        # the way out.  Stdout is block buffered whenever it is not a terminal, so it has
+        # to be flushed by hand or a redirected run loses the output leading up to the
+        # failure.
+        #
+        # The flush can itself fail, on a broken pipe from something like "| head" or on a
+        # full disk.  That exception would escape this handler, burying the message above
+        # in a traceback and exiting 120 rather than 1.  Ignore all of them rather than
+        # just OSError, because the response is the same whatever the reason: if the
+        # output cannot be written then there is nothing left to report it with, and the
+        # process is about to exit non-zero regardless.
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except:
+            pass
+
         os._exit(1)
