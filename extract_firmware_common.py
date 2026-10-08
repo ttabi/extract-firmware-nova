@@ -287,6 +287,55 @@ def symlink(dest: str, source: str, target_is_directory = False):
         os.remove(source)
         os.symlink(dest, source, target_is_directory)
 
+# If every file in the first directory is a symlink to a file in the second
+# directory, replace the first directory with a symlink to the second.  A link
+# that points somewhere else is also acceptable if the second directory has a
+# link of the same name to the same file.  Both paths must be absolute.
+# Returns True when the directory was replaced.
+def symlink_dirs_if_linked(first: str, second: str) -> bool:
+    if not os.path.isabs(first) or not os.path.isabs(second):
+        raise MyException(f"symlink_dir_if_linked requires absolute paths: {first} and {second}")
+
+    if not os.path.isdir(first) or not os.path.isdir(second):
+        raise MyException(f"symlink_dir_if_linked requires two directories: {first} and {second}")
+
+    # isdir() follows symlinks.  A first path that is already a link must be
+    # left alone: scanning it would list the target directory.
+    if os.path.islink(first) or os.path.samefile(first, second):
+        return False
+
+    entries = list(os.scandir(first))
+    if len(entries) == 0:
+        return False
+
+    for entry in entries:
+        if not entry.is_symlink():
+            return False
+
+        resolved = os.path.realpath(entry.path)
+        if not os.path.isfile(resolved):
+            return False
+
+        parent = os.path.dirname(resolved)
+        # Normally the link names a file whose parent is the second directory.
+        if os.path.isdir(parent) and os.path.samefile(parent, second):
+            continue
+
+        # The link may also point outside the second directory, as long as the
+        # entry of the same name there is a link to the same file.  Replacing
+        # the first directory then preserves what the link resolves to.
+        counterpart = os.path.join(second, entry.name)
+        if not os.path.islink(counterpart) or not os.path.isfile(counterpart):
+            return False
+        if not os.path.samefile(resolved, counterpart):
+            return False
+
+    for entry in entries:
+        os.remove(entry.path)
+    os.rmdir(first)
+    symlink(second, first, target_is_directory = True)
+    return True
+
 # Verify the .run file and extract its contents to the given temp directory
 def extract_run_file(runfile, tempdir):
     import subprocess
