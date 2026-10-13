@@ -1142,98 +1142,6 @@ def booter(gpu, load, sigsize, debug = False):
 
     tlv.write()
 
-# GPU memory scrubber, needed for some GPUs and configurations
-def scrubber(gpu, sigsize, debug = False):
-    fuse = "dbg" if debug else "prod"
-    # Unfortunately, RM breaks convention with the scrubber image and labels
-    # the files and arrays with AD10X instead of AD102.
-    GPUX = f"{gpu[:-1].upper()}X"
-    name = f"scrubber-{gpu}-{fuse}"
-
-    filename = f"src/nvidia/generated/g_bindata_ksec2GetBinArchiveSecurescrubUcode_{GPUX}.c"
-
-    tlv = TLV("scrubber", gpu)
-
-    # Query the number of signatures.  This should be a 4-byte array (32-bit little-endian integer)
-    raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "num_sigs")
-    if len(raw) != 4:
-        raise MyException(f"num_sigs array for {name} is wrong size of {len(raw)}")
-    num_sigs = struct.unpack("<I", raw)[0]
-    if num_sigs < 1 or num_sigs > 15:
-        raise MyException(f"out of range number of signatures ({num_sigs}) for {name}")
-    tlv.add("NSIG", num_sigs)
-
-    # Extract the signatures.  Technically, we don't need to pass the signature size to
-    # this function, but doing so allows us to double-check all the array sizes.
-    signatures = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"sig_{fuse}")
-    signatures_size = len(signatures)
-    if signatures_size % sigsize:
-        raise MyException(f"signature file size for {name} is {signatures_size}, an uneven multiple of {sigsize}")
-    if num_sigs != signatures_size // sigsize:
-        raise MyException(f"mismatch number of signatures ({signatures_size // sigsize}), should be {num_sigs}")
-    tlv.add("SIGN", signatures)
-
-    # Extract the patch location
-    raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_loc")
-    if len(raw) != 4:
-        raise MyException(f"patch_loc[] array for {name} should be one element, but is {len(raw)} bytes.")
-    patchloc = struct.unpack("<I", raw)[0]
-    tlv.add("PLOC", patchloc)
-
-    # Extract the patch sig offset.  RM expects this to be zero, but doesn't use it,
-    # so if it's ever non-zero, something has changed.
-    raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_sig")
-    if len(raw) != 4:
-        raise MyException(f"patch_sig[] array for {name} should be one element, but is {len(raw)} bytes.")
-    patchsig = struct.unpack("<I", raw)[0]
-    if patchsig != 0:
-        raise MyException(f"patch_sig for {name} should be 0, but is instead {patchsig}.")
-
-    # Extract the patch meta variables
-    raw = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", "patch_meta")
-    fuse_ver, engine_id, ucode_id = struct.unpack("<III", raw)
-    tlv.add("FUSE", fuse_ver)
-    tlv.add("ENID", engine_id)
-    tlv.add("UCID", ucode_id)
-
-    # Extract the descriptor (nvfw_hs_load_header_v2)
-    descriptor = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"header_{fuse}")
-    if len(descriptor) < 36:
-        raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} must be at least 36 bytes, but is instead {len(descriptor)} bytes.")
-
-    # Extract some of individual fields of nvfw_hs_load_header_v2
-    (os_code_offset, os_code_size, os_data_offset, os_data_size, num_apps,
-     app_code_offset, app_code_size, app_data_offset, app_data_size) = struct.unpack_from("<9I", descriptor)
-    # Verify that sizeof(descriptor) == 5 * 4 + num_apps * 16
-    if len(descriptor) != 5 * 4 + num_apps * 16:
-        raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} should be {5 * 4 + num_apps * 16} bytes, but is instead {len(descriptor)} bytes.")
-    # Nova depends on os_code_size == app_code_offset
-    if os_code_size != app_code_offset:
-        raise MyException(f"nvfw_hs_load_header_v2 descriptor for {name} has os_code_size={os_code_size} and app_code_offset={app_code_offset}, but they should be the same.")
-
-    # Extract the actual scrubber firmware
-    firmware = get_bytes(filename, f"ksec2BinArchiveSecurescrubUcode_{GPUX}", f"image_{fuse}")
-
-    if os_code_size + os_data_size + app_code_size > len(firmware):
-        raise MyException(f"{os_code_size=} + {os_data_size=} + {app_code_size=} for {name} exceeds image size of {len(firmware)}")
-    if os_code_offset + os_code_size > len(firmware):
-        raise MyException(f"{os_code_offset=} + {os_code_size=} for {name} exceeds image size of {len(firmware)}")
-    if os_data_offset + os_data_size > len(firmware):
-        raise MyException(f"{os_data_offset=} + {os_data_size=} for {name} exceeds image size of {len(firmware)}")
-    if app_code_offset + app_code_size > len(firmware):
-        raise MyException(f"{app_code_offset=} + {app_code_size=} for {name} exceeds image size of {len(firmware)}")
-
-    tlv.add("CDOF", os_code_offset)
-    tlv.add("CDSZ", os_code_size)
-    tlv.add("DAOF", os_data_offset)
-    tlv.add("DASZ", os_data_size)
-    tlv.add("A0CO", app_code_offset)
-    tlv.add("A0CS", app_code_size)
-
-    tlv.add("BLOB", firmware)
-
-    tlv.write()
-
 # Firmware Management Controller, replaces booter to load GSP-RM.
 def fmc(gpu: str, debug = False):
     fuse = "Debug" if debug else "Prod"
@@ -1833,7 +1741,6 @@ def main():
     booter("ad102", "load", 384, args.debug_fused)
     booter("ad102", "unload", 384, args.debug_fused)
     gsp_bootloader("ad102", args.debug_fused)
-#    scrubber("ad102", 384, args.debug_fused) # Not currently used by Nova
 
     gsp_bootloader("gh100", args.debug_fused)
     fmc("gh100", args.debug_fused)
