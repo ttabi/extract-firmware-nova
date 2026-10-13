@@ -108,12 +108,16 @@ supported = [
     "gb203",
     "gb205",
     "gb206",
-    "gb207"
+    "gb207",
 ]
 
-# The HAL variables Nova needs, and the gsp.tlv tag each one is written as.  gsp.tlv
-# entries are written in this order, and symlinks() reads them back to check that every
-# GPU ended up with the values that were computed for it.
+# The list of LIBOS2 GPUs is fixed for all time.
+libos2_gpus = ["tu102", "tu104", "tu106", "tu116", "tu117", "ga100"]
+
+# All other GPUs use LIBOS3.
+libos3_gpus = []
+
+# The GSP HAL variables Nova needs, and the gsp.tlv tag each one is written as.
 hal_tlv_tags = {
     "HBSZ": "gspFwHeapBaseSize",
     "HSPG": "gspFwHeapSizePerGb",
@@ -738,8 +742,6 @@ def parse_gsp_fw_heap_base_size() -> dict:
     per_channel_overhead = kernel_gsp_nvoc.get("fwHeapParamPerChannelOverhead", {})
     channels = (macro_value(macro_file, "GSP_FW_HEAP_PARAM_MAX_SUPPORTED_CHANNELS")
                 if per_channel_overhead else 0)
-
-    libos2_gpus = ["tu102", "tu104", "tu106", "tu116", "tu117", "ga100"]
 
     gspFwHeapBaseSize = {}
 
@@ -1600,6 +1602,9 @@ def main():
     global nvidiadir
     global subdir
     global hals
+    global supported
+    global libos2_gpus
+    global libos3_gpus
 
     parser = argparse.ArgumentParser(
         allow_abbrev = False,
@@ -1707,7 +1712,7 @@ def main():
 
     # GB10B (Jetson Thor) support was added in r580
     if is_supported("gb10b"):
-        supported.append("gb10b")
+        supported.insert(supported.index("gb202"), "gb10b")
 
     # GB20B (N1X) support was added in r580
     if is_supported("gb20b"):
@@ -1716,6 +1721,9 @@ def main():
     # GR100 support was added in r610
     if is_supported("gr100"):
         supported.extend(["gr100", "gr102"])
+
+    # Now we have an exact list of which GPUs are supported.
+    libos3_gpus = [gpu for gpu in supported if gpu not in libos2_gpus]
 
     # The generic bootloader is only defined for TU102 but is used
     # by all TU1xx and GA100.
