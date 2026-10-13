@@ -1054,7 +1054,7 @@ def gsp_bootloader(gpu: str, debug = None):
     tlv.write()
 
 # GSP Booter load and unload
-def booter(gpu, load, sigsize, debug = False):
+def booter(gpu, load, debug = False):
     fuse = "dbg" if debug else "prod"
     GPU = gpu.upper()
     LOAD = load.capitalize()
@@ -1073,14 +1073,14 @@ def booter(gpu, load, sigsize, debug = False):
         raise MyException(f"out of range number of signatures ({num_sigs}) for {name}")
     tlv.add("NSIG", num_sigs)
 
-    # Extract the signatures.  Technically, we don't need to pass the signature size to
-    # this function, but doing so allows us to double-check all the array sizes.
+    # Extract the signatures.
     signatures = get_bytes(filename, f"kgspBinArchiveBooter{LOAD}Ucode_{GPU}", f"sig_{fuse}")
+
+    # Simple check to validate the length and the signature count.
     signatures_size = len(signatures)
-    if signatures_size % sigsize:
-        raise MyException(f"signature file size for {name} is {signatures_size}, an uneven multiple of {sigsize}")
-    if num_sigs != signatures_size // sigsize:
-        raise MyException(f"mismatch number of signatures ({signatures_size // sigsize}), should be {num_sigs}")
+    if signatures_size % num_sigs:
+        raise MyException(f"signature file size for {name} is {signatures_size}, an uneven multiple of {num_sigs}")
+
     tlv.add("SIGN", signatures)
 
     # Extract the patch location
@@ -1729,25 +1729,25 @@ def main():
     # by all TU1xx and GA100.
     generic_bootloader("tu102")
 
-    booter("tu102", "load", 16, args.debug_fused)
-    booter("tu102", "unload", 16, args.debug_fused)
+    booter("tu102", "load", args.debug_fused)
+    booter("tu102", "unload", args.debug_fused)
     # TU10x and GA100 do not have debug-fused versions of the GSP bootloader
     gsp_bootloader("tu102")
 
-    booter("tu116", "load", 16, args.debug_fused)
-    booter("tu116", "unload", 16, args.debug_fused)
+    booter("tu116", "load", args.debug_fused)
+    booter("tu116", "unload", args.debug_fused)
     # TU11x uses the same bootloader as TU10x
 
-    booter("ga100", "load", 384, args.debug_fused)
-    booter("ga100", "unload", 384, args.debug_fused)
+    booter("ga100", "load", args.debug_fused)
+    booter("ga100", "unload", args.debug_fused)
     gsp_bootloader("ga100")
 
-    booter("ga102", "load", 384, args.debug_fused)
-    booter("ga102", "unload", 384, args.debug_fused)
+    booter("ga102", "load", args.debug_fused)
+    booter("ga102", "unload", args.debug_fused)
     gsp_bootloader("ga102", args.debug_fused)
 
-    booter("ad102", "load", 384, args.debug_fused)
-    booter("ad102", "unload", 384, args.debug_fused)
+    booter("ad102", "load", args.debug_fused)
+    booter("ad102", "unload", args.debug_fused)
     gsp_bootloader("ad102", args.debug_fused)
 
     gsp_bootloader("gh100", args.debug_fused)
