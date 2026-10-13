@@ -37,6 +37,7 @@ import struct
 import tempfile
 import urllib.request
 import shutil
+import filecmp
 
 try:
     from pcpp import Action, Evaluator, OutputDirective, Preprocessor
@@ -54,6 +55,7 @@ from extract_firmware_common import (
     symlink,
     extract_run_file,
     round_up_to_base,
+    symlink_dirs_if_linked,
 )
 
 # Where all the files will be written
@@ -969,30 +971,32 @@ def update_hals(update: dict):
 # Generic Falcon bootloader.  First, FWSEC runs on the RISC-V GSP core.
 # Then this generic bootloader runs on the SEC2 core, in order to restart the GSP
 # core to run GSP-RM on it.  This is only used on TU10x and GA100 GPUs.
+# Unlike other firmware images, there is only one version of this file, and it's defined
+# for TU102 only.  So we can hard-code that string and allow the file to be created
+# for all LIBOS2 GPUs.
 def generic_bootloader(gpu):
-    GPU = gpu.upper()
-    filename = f"src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_{GPU}.c"
+    filename = f"src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_TU102.c"
 
     tlv = TLV("gen_bootloader", gpu)
 
     # Extract the descriptor (RM_FLCN_BL_DESC)
-    descriptor = get_bytes(filename, f"RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_{GPU}", "ucode_desc")
+    descriptor = get_bytes(filename, f"RM_FLCN_BL_DESC ksec2BinArchiveBlUcode_TU102", "ucode_desc")
     (start_tag, dmem_load_off, code_offset, code_size, data_off,
         data_size) = struct.unpack("<6I", descriptor)
     # Both RM and Nova only load the code section, and both assume that
     # code_off and dmem_load_off are zero.
     if code_offset != 0:
-        raise MyException(f"code offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {code_offset}")
+        raise MyException(f"code offset in ksec2BinArchiveBlUcode_TU102 should be 0 but is {code_offset}")
     if dmem_load_off != 0:
-        raise MyException(f"dmem load offset in ksec2BinArchiveBlUcode_{GPU} should be 0 but is {dmem_load_off}")
+        raise MyException(f"dmem load offset in ksec2BinArchiveBlUcode_TU102 should be 0 but is {dmem_load_off}")
     # Ensure the start tag fits in the register
     if start_tag > 65535:
-        raise MyException(f"start tag in ksec2BinArchiveBlUcode_{GPU} value of {start_tag} is too large")
+        raise MyException(f"start tag in ksec2BinArchiveBlUcode_TU102 value of {start_tag} is too large")
 
     # Extract the actual bootloader firmware
-    firmware = get_bytes(filename, f"ksec2BinArchiveBlUcode_{GPU}", "ucode_image")
+    firmware = get_bytes(filename, f"ksec2BinArchiveBlUcode_TU102", "ucode_image")
     if code_offset + code_size > len(firmware):
-        raise MyException(f"{code_offset=} + {code_size=} in ksec2BinArchiveBlUcode_{GPU} exceeds image size of {len(firmware)}")
+        raise MyException(f"{code_offset=} + {code_size=} in ksec2BinArchiveBlUcode_TU102 exceeds image size of {len(firmware)}")
 
     tlv.add("STRT", start_tag)
     tlv.add("CDSZ", code_size)
@@ -1000,6 +1004,38 @@ def generic_bootloader(gpu):
     tlv.add("BLOB", firmware)
 
     tlv.write()
+
+# Returns the name of the source GPU of the GSP bootloader for the given GPU.
+#
+# FIXME: This is currently a hard-coded list, but we should be generating it
+# dynamically by scraping the OpenRM source code.  It needs to be updated
+# whenever we add support for a new GPU.
+def gsp_bootloader_from_gpu(gpu: str) -> str:
+    if gpu in ["ga100", "gb10b", "gb20b"]:
+        return gpu
+
+    if gpu.startswith("tu"):
+        return "tu102"
+
+    if gpu.startswith("ga"):
+        return "ga102"
+
+    if gpu.startswith("ad"):
+        return "ad102"
+
+    if gpu.startswith("gh"):
+        return "gh100"
+
+    if gpu.startswith("gb1"):
+        return "gb100"
+
+    if gpu.startswith("gb2"):
+        return "gb202"
+
+    if gpu.startswith("gr1"):
+        return "gr100"
+
+    raise MyException(f"Cannot determine GSP bootloader name for {gpu}")
 
 # GSP bootloader
 def gsp_bootloader(gpu: str, debug = None):
@@ -1010,7 +1046,7 @@ def gsp_bootloader(gpu: str, debug = None):
         fuse = ""
         name = f"gsp-bootloader-{gpu}"
 
-    GPU = gpu.upper()
+    GPU = gsp_bootloader_from_gpu(gpu).upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmBoot_{GPU}.c"
 
     tlv = TLV("gsp_bootloader", gpu)
@@ -1053,10 +1089,35 @@ def gsp_bootloader(gpu: str, debug = None):
     tlv.add("BLOB", firmware)
     tlv.write()
 
+def has_booter(gpu: str) -> bool:
+    return gpu.startswith(("tu", "ga", "ad"))
+
+# Returns the name of the source GPU of the Booter load/unload firmware for the given GPU.
+# Booter is used only on pre-Hopper (i.e. not FMC-based) GPUs.
+# This is a hard-coded list, and that's okay because we are not making any more GPUs that
+# use booter.  Ideally, we should get this list from scraping OpenRM source code.
+def booter_from_gpu(gpu: str) -> str:
+    if gpu in ["ga100"]:
+        return gpu
+
+    if gpu.startswith("tu10"):
+        return "tu102"
+
+    if gpu.startswith("tu11"):
+        return "tu116"
+
+    if gpu.startswith("ga"):
+        return "ga102"
+
+    if gpu.startswith("ad"):
+        return "ad102"
+
+    raise MyException(f"Cannot determine Booter name for {gpu}")
+
 # GSP Booter load and unload
 def booter(gpu, load, debug = False):
     fuse = "dbg" if debug else "prod"
-    GPU = gpu.upper()
+    GPU = booter_from_gpu(gpu).upper()
     LOAD = load.capitalize()
     name = f"booter-{load}-{gpu}-{fuse}"
 
@@ -1144,10 +1205,30 @@ def booter(gpu, load, debug = False):
 
     tlv.write()
 
+# Returns the name of the source GPU of the FMC firmware for the given GPU.
+# FMC is used only on Hopper and later.
+# FIXME: This is currently a hard-coded list, but we should be generating it
+# dynamically by scraping the OpenRM source code.  It needs to be updated
+# whenever we add support for a new GPU.
+def fmc_from_gpu(gpu: str) -> str:
+    if gpu in ["gh100", "gb10b", "gb20b"]:
+        return gpu
+
+    if gpu.startswith("gb1"):
+        return "gb100"
+
+    if gpu.startswith("gb2"):
+        return "gb202"
+
+    if gpu.startswith("gr1"):
+        return "gr100"
+
+    raise MyException(f"Cannot determine FMC name for {gpu}")
+
 # Firmware Management Controller, replaces booter to load GSP-RM.
 def fmc(gpu: str, debug = False):
     fuse = "Debug" if debug else "Prod"
-    GPU = gpu.upper()
+    GPU = fmc_from_gpu(gpu).upper()
     filename = f"src/nvidia/generated/g_bindata_kgspGetBinArchiveGspRmFmcGfw{fuse}Signed_{GPU}.c"
 
     tlv = TLV("fmc", gpu)
@@ -1174,6 +1255,43 @@ def fmc(gpu: str, debug = False):
     tlv.add("BLOB", ucode_image)
 
     tlv.write()
+
+# Returns the name of the source GPU of the GSP TLV for the given GPU.
+#
+# FIXME: This is currently a hard-coded list, but we should be generating it
+# dynamically by scraping the OpenRM source code.  It needs to be updated
+# whenever we add support for a new GPU.
+def gsp_tlv_from_gpu(gpu: str) -> str:
+    if gpu in ["ga100", "gb10b", "gb20b"]:
+        return gpu
+
+    if gpu.startswith("tu10"):
+        return "tu102"
+
+    # This particular check is problematic, because we are hard-coding the
+    # knowledge that TU116 and TU102 have different gsp.tlv files.
+    if gpu.startswith("tu11"):
+        return "tu116"
+
+    if gpu.startswith("ga"):
+        return "ga102"
+
+    if gpu.startswith("ad"):
+        return "ad102"
+
+    if gpu.startswith("gh"):
+        return "gh100"
+
+    if gpu.startswith("gb1"):
+        return "gb100"
+
+    if gpu.startswith("gb2"):
+        return "gb202"
+
+    if gpu.startswith("gr1"):
+        return "gr100"
+
+    raise MyException(f"Cannot determine GSP bootloader name for {gpu}")
 
 def fwimage_from_gsp_elf(filename: str, gpu: str):
     global outputpath
@@ -1240,38 +1358,68 @@ def ucodes(gsp_source):
                         os.path.join(outputpath, "nvidia", nvidiadir, "ga102", subdir, "ucodes.bin"))
         print(f"Copied ucodes_ga10x.bin to {os.path.join('nvidia', nvidiadir, 'ga102', subdir, 'ucodes.bin')}")
 
+# Returns the ELF section name of the signature for any given supported GPU.
+# This mapping is hard-coded in OpenRM, so that mapping must be mirrored here.
+def signature_from_gpu(gpu: str) -> str:
+    if gpu.startswith("tu10"):
+        return ".fwsignature_tu10x"
+
+    if gpu.startswith("tu11"):
+        return ".fwsignature_tu11x"
+
+    if gpu == "ga100":
+        return ".fwsignature_ga100"
+
+    if gpu.startswith("ga"):
+        return ".fwsignature_ga10x"
+
+    if gpu.startswith("ad"):
+        return ".fwsignature_ad10x"
+
+    if gpu.startswith("gh"):
+        return ".fwsignature_gh100"
+
+    if gpu == "gb10b":
+        return ".fwsignature_gb10y"
+
+    if gpu == "gb20b":
+        return ".fwsignature_gb20y"
+
+    if gpu.startswith("gb1"):
+        return ".fwsignature_gb10x"
+
+    if gpu.startswith("gb2"):
+        return ".fwsignature_gb20x"
+
+    if gpu.startswith("gr1"):
+        return ".fwsignature_gr10x"
+
+    raise MyException(f"Cannot determine ELF signature section name for {gpu}")
+
 # Extract the GSP-RM binaries and create the TLV files for each GPU that has its own
 # .fwsignature section.
+#
+# Because of the NVOC HAL variables, we cannot easily determine which GPUs have unique
+# gsp.tlv files.  In the past, we could hard-code the symlink relationship among GPUs.
+# That is no longer the case, so what we do is create a whole gsp.tlv file for each
+# supported GPU, then we compare all the files and replace duplicates with symlinks.
 def gsprm(tu10x_gsp_src, ga10x_gsp_src):
     global outputpath
+    global libos2_gpus
+    global libos3_gpus
 
     fwimage_from_gsp_elf(tu10x_gsp_src, "tu102")
     fwimage_from_gsp_elf(ga10x_gsp_src, "ga102")
 
     elf = ELF64(tu10x_gsp_src)
-    gsp_tlv_from_elf(elf, ".fwsignature_tu10x", "tu102")
-    gsp_tlv_from_elf(elf, ".fwsignature_tu11x", "tu116")
-    gsp_tlv_from_elf(elf, ".fwsignature_ga100", "ga100")
+    for gpu in libos2_gpus:
+        signature = signature_from_gpu(gpu)
+        gsp_tlv_from_elf(elf, signature, gpu)
 
     elf = ELF64(ga10x_gsp_src)
-    gsp_tlv_from_elf(elf, ".fwsignature_ga10x", "ga102")
-    gsp_tlv_from_elf(elf, ".fwsignature_ad10x", "ad102")
-    gsp_tlv_from_elf(elf, ".fwsignature_gh100", "gh100")
-    gsp_tlv_from_elf(elf, ".fwsignature_gb10x", "gb100")
-    gsp_tlv_from_elf(elf, ".fwsignature_gb20x", "gb202")
-
-    # GB20x is unique in that gsp.tlv has some differences
-    # among the GPU variants, so we need to create unique
-    # files for all of them.
-    for gpu in ["gb203", "gb205", "gb206", "gb207"]:
-        gsp_tlv_from_elf(elf, ".fwsignature_gb20x", gpu)
-
-    if "gb10b" in supported:
-        gsp_tlv_from_elf(elf, ".fwsignature_gb10y", "gb10b")
-    if "gb20b" in supported:
-        gsp_tlv_from_elf(elf, ".fwsignature_gb20y", "gb20b")
-    if "gr100" in supported:
-        gsp_tlv_from_elf(elf, ".fwsignature_gr10x", "gr100")
+    for gpu in libos3_gpus:
+        signature = signature_from_gpu(gpu)
+        gsp_tlv_from_elf(elf, signature, gpu)
 
 # Extract the GSP-RM firmware from the .run file and copy the binaries
 # to the target directory.
@@ -1335,54 +1483,51 @@ def driver(pathspec):
     else:
         raise MyException(f"{pathspec} does not exist or is unreadable.")
 
-# Two kinds of symlinks are created by the script: a symlink from one firmware file
-# for one GPU to the matching file for another GPU, or a symlink from the directory
-# of one GPU variant to its primary (e.g. GB203 -> GB202).
-# This function standardizes the process of making those links.
+# -------------------------------------------------------------------
+# Symlinks
+# -------------------------------------------------------------------
 
-# When linking one GPU to another, Nouveau compatibility must be considered.  For
-# Turing and Ampere, Nouveau created multiple subdirectories for each GPU that
-# includes non-GSP firmware files.  These other directories must not be touched.
-def link_gpu(dest_gpu: str, src_gpu: str, filename: str | None = None):
+# For a given GPU and filename, find the "oldest" GPU that has an identical file.
+#
+# This function depends on `supported` being sorted by GPU family.
+def find_first_match(gpu: str, filename: str) -> str | None:
     global outputpath
     global nvidiadir
     global subdir
 
-    if filename:
-        # We only support linking files to the same filename in another directory.
-        src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir, filename)
-        dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu, subdir, filename)
-        os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir), exist_ok = True)
-        symlink(dest, src, target_is_directory = False)
-    else:
-        # Directory symlinks can only be between GPU variants.
-        if src_gpu[:2] != dest_gpu[:2]:
-            raise MyException(f"Cannot link {src_gpu} to {dest_gpu}")
+    src = os.path.join(outputpath, "nvidia", nvidiadir, gpu, subdir, filename)
 
-        # Set to True if the directory hierarchy also has Nouveau binaries in it
-        # that might conflict.
-        has_nouveau = nvidiadir == ""
+    for gpu2 in supported:
+        if gpu == gpu2:
+            return None
 
-        if has_nouveau and src_gpu.startswith(("tu", "ga")):
-            src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir)
-            dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu, subdir)
-            os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, src_gpu), exist_ok = True)
-        else:
-            src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu)
-            dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu)
+        dest = os.path.join(outputpath, "nvidia", nvidiadir, gpu2, subdir, filename)
+        if not os.path.exists(dest):
+            continue
 
-            # If the source is an existing real directory, then create symlinks to
-            # all the individual files in the target instead.  For some GPUs, the
-            # script will create some unique files, and leave it to this function
-            # to create symlinks for the rest.
-            if os.path.isdir(src) and not os.path.islink(src):
-                for d in os.listdir(os.path.join(dest, subdir)):
-                    # Leave alone the files the source generated for itself
-                    if not os.path.exists(os.path.join(src, subdir, d)):
-                        link_gpu(dest_gpu, src_gpu, d)
-                return
+        if filecmp.cmp(src, dest, shallow=False):
+            return gpu2
 
-        symlink(dest, src, target_is_directory = True)
+    return None
+
+# Symlink one firmware file for one GPU to the matching file for another GPU.
+# Directory-level links between GPUs are not made here: symlinks() creates those
+# once the duplicate files have been merged, which keeps the sibling directories
+# that Nouveau populates for Turing and Ampere from being shadowed.
+def link_gpu(dest_gpu: str, src_gpu: str, filename: str):
+    global outputpath
+    global nvidiadir
+    global subdir
+
+    # We only support linking files to the same filename in another directory.
+    src = os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir, filename)
+    dest = os.path.join(outputpath, "nvidia", nvidiadir, dest_gpu, subdir, filename)
+    os.makedirs(os.path.join(outputpath, "nvidia", nvidiadir, src_gpu, subdir), exist_ok = True)
+    if os.path.exists(src):
+        os.remove(src)
+
+    # This script always calls symlink() with absolute paths
+    symlink(dest, src, target_is_directory = False)
 
 # Create symlinks in the target directory for the other GPUs.  This mirrors
 # what the WHENCE file in linux-firmware does.
@@ -1395,71 +1540,93 @@ def symlinks():
     topdir = os.path.join(outputpath, "nvidia", nvidiadir)
     print(f"Creating symlinks in {topdir}")
 
-    # Nouveau supports Turing and Ampere without GSP-RM support, using separate firmware
-    # files in the 'acr', 'gr', 'nvdec', and 'sec2' subdirectories, which are all
-    # siblings of the 'gsp' subdirectory.  Therefore, for these GPUs, we must symlink
-    # from <gpu1>/gsp/ -> <gpu2>/gsp instead of just <gpu1> -> <gpu2>.
-
-    # Turing / GA100
-    for d in ["tu104", "tu106"]:
-        link_gpu("tu102", d)
-
-    for d in ["tu117"]:
-        link_gpu("tu116", d)
-
-    # TU11x uses the same GSP bootloader as TU10x
-    link_gpu("tu102", "tu116", "gsp_bootloader.tlv")
-
-    # TU11x and GA100 use the same generic bootloader as TU10x
-    link_gpu("tu102", "tu116", "gen_bootloader.tlv")
-    link_gpu("tu102", "ga100", "gen_bootloader.tlv")
-
     # Symlink the GSP-RM image for TU11x and GA100
-    link_gpu("tu102", "tu116", "gsp.bin")
-    link_gpu("tu102", "ga100", "gsp.bin")
+    for gpu in [gpu for gpu in libos2_gpus if gpu != "tu102"]:
+        link_gpu("tu102", gpu, "gsp.bin")
 
-    # Ampere
-    for d in ["ga103", "ga104", "ga106", "ga107"]:
-        link_gpu("ga102", d)
-
-    # Ada
-    for d in ["ad103", "ad104", "ad106", "ad107"]:
-        link_gpu("ad102", d)
-
-    # Blackwell
-    for d in ["gb102"]:
-        link_gpu("gb100", d)
-
-    for d in ["gb203", "gb205", "gb206", "gb207"]:
-        link_gpu("gb202", d)
-
-    # Rubin
-    if os.path.exists(os.path.join(topdir, "gr100")):
-        for d in ["gr102"]:
-            link_gpu("gr100", d)
-
-    # Handle gsp.bin for all remaining paths.
-    root = Path(topdir)
-    paths = [d.name for d in root.glob("*")
-             if os.path.isdir(os.path.join(topdir, d, subdir))
-             and not os.path.exists(os.path.join(topdir, d, subdir, "gsp.bin"))]
-    for d in paths:
-        link_gpu("ga102", d, "gsp.bin")
+    for gpu in [gpu for gpu in libos3_gpus if gpu != "ga102"]:
+        link_gpu("ga102", gpu, "gsp.bin")
 
     # Symlink the ucodes binaries, if they exist.
     if os.path.exists(os.path.join(topdir, "tu102", subdir, "ucodes.bin")):
-        for d in ["tu116", "ga100"]:
-            link_gpu("tu102", d, "ucodes.bin")
-            link_gpu("tu102", d, "ucodes.tlv")
+        for gpu in [gpu for gpu in libos2_gpus if gpu != "tu102"]:
+            link_gpu("tu102", gpu, "ucodes.bin")
+            link_gpu("tu102", gpu, "ucodes.tlv")
 
-    if os.path.exists(os.path.join(topdir, "ga102", subdir, "ucodes.bin")):
-        paths = [d.name for d in root.glob("*")
-                 if os.path.isdir(os.path.join(topdir, d, subdir))
-                 and not os.path.exists(os.path.join(topdir, d, subdir, "ucodes.bin"))
-                 and d.name != "ga102"]
-        for d in paths:
-            link_gpu("ga102", d, "ucodes.bin")
-            link_gpu("ga102", d, "ucodes.tlv")
+        for gpu in [gpu for gpu in libos3_gpus if gpu != "ga102"]:
+            link_gpu("ga102", gpu, "ucodes.bin")
+            link_gpu("ga102", gpu, "ucodes.tlv")
+
+    # Now replace all duplicate files with symlinks.  Note that this process is
+    # overkill for any TLV files except for gsp.tlv.  That's because OpenRM only
+    # supports NVOC variables for gsp.tlv, and so it's possible for each GPU to have
+    # its own gsp.tlv.  All other TLVs are built only from the "original" firmware
+    # source files, and so there are no GPU-specific variations.
+
+    # For the Generic Bootloader, we know that there is only one original (TU102)
+    # and that all other LIBOS2 GPUs link to it.
+    second = os.path.join(topdir, "tu102", subdir, "gen_bootloader.tlv")
+    for gpu in [gpu for gpu in libos2_gpus if gpu != "tu102"]:
+        original = find_first_match(gpu, "gen_bootloader.tlv")
+        if original:
+            link_gpu(original, gpu, "gen_bootloader.tlv")
+
+    # Booter-load and booter-unload
+    booter_gpus = [gpu for gpu in supported if has_booter(gpu)]
+    for gpu in booter_gpus:
+        original = find_first_match(gpu, "booter_load.tlv")
+        if original:
+            link_gpu(original, gpu, "booter_load.tlv")
+
+        original = find_first_match(gpu, "booter_unload.tlv")
+        if original:
+            link_gpu(original, gpu, "booter_unload.tlv")
+
+    # GSP Bootloader and TLV
+    for gpu in supported:
+        original = find_first_match(gpu, "gsp_bootloader.tlv")
+        if original:
+            link_gpu(original, gpu, "gsp_bootloader.tlv")
+
+        original = find_first_match(gpu, "gsp.tlv")
+        if original:
+            link_gpu(original, gpu, "gsp.tlv")
+
+    # FMC
+    fmc_gpus = [gpu for gpu in supported if not has_booter(gpu)]
+    for gpu in fmc_gpus:
+        original = find_first_match(gpu, "fmc.tlv")
+        if original:
+            link_gpu(original, gpu, "fmc.tlv")
+
+    # Now merge identical GPU subdirectories
+    for gpu in supported:
+        first = os.path.join(topdir, gpu, subdir)
+        for gpu2 in supported[:supported.index(gpu)]:
+            second = os.path.join(topdir, gpu2, subdir)
+            if symlink_dirs_if_linked(first, second):
+                break
+
+    # Finally, if gpu1/subdir -> gpu2/subdir, and gpu1 has no other subdirectories
+    # or files in it, then we can link gpu1 -> gpu2 directly.  This only makes sense
+    # if `subdir` is not empty.
+    if subdir:
+        for gpu in supported:
+            gpudir = os.path.join(topdir, gpu)
+            entries = list(os.scandir(gpudir))
+            if len(entries) != 1:
+                continue
+            # The lone entry must be the firmware subdirectory, linked elsewhere.
+            entry = entries[0]
+            if entry.name != subdir or not entry.is_symlink() or not entry.is_dir():
+                continue
+            # Resolve the link relative to gpudir rather than with realpath(),
+            # so the target stays rooted at `outputpath`.
+            linked = os.path.normpath(os.path.join(gpudir, os.readlink(entry.path)))
+            target = os.path.dirname(linked)
+            os.remove(entry.path)
+            os.rmdir(gpudir)
+            symlink(target, gpudir, target_is_directory = True)
 
     # Verify that there are no broken symlinks, and that every file
     # symlink points to a file inside a gsp/ directory.
@@ -1726,50 +1893,24 @@ def main():
     libos3_gpus = [gpu for gpu in supported if gpu not in libos2_gpus]
 
     # The generic bootloader is only defined for TU102 but is used
-    # by all TU1xx and GA100.
-    generic_bootloader("tu102")
+    # by all LIBOS2 GPUs.
+    for gpu in libos2_gpus:
+        generic_bootloader(gpu)
 
-    booter("tu102", "load", args.debug_fused)
-    booter("tu102", "unload", args.debug_fused)
-    # TU10x and GA100 do not have debug-fused versions of the GSP bootloader
-    gsp_bootloader("tu102")
+    booter_gpus = [gpu for gpu in supported if has_booter(gpu)]
+    for gpu in booter_gpus:
+        booter(gpu, "load", args.debug_fused)
+        booter(gpu, "unload", args.debug_fused)
 
-    booter("tu116", "load", args.debug_fused)
-    booter("tu116", "unload", args.debug_fused)
-    # TU11x uses the same bootloader as TU10x
+    # Every GPU uses a GSP bootloader
+    for gpu in supported:
+        # LIBOS2 GPUs do not have debug-fused versions of the GSP bootloader.
+        gsp_bootloader(gpu, None if gpu in libos2_gpus else args.debug_fused)
 
-    booter("ga100", "load", args.debug_fused)
-    booter("ga100", "unload", args.debug_fused)
-    gsp_bootloader("ga100")
-
-    booter("ga102", "load", args.debug_fused)
-    booter("ga102", "unload", args.debug_fused)
-    gsp_bootloader("ga102", args.debug_fused)
-
-    booter("ad102", "load", args.debug_fused)
-    booter("ad102", "unload", args.debug_fused)
-    gsp_bootloader("ad102", args.debug_fused)
-
-    gsp_bootloader("gh100", args.debug_fused)
-    fmc("gh100", args.debug_fused)
-
-    gsp_bootloader("gb100", args.debug_fused)
-    fmc("gb100", args.debug_fused)
-
-    gsp_bootloader("gb202", args.debug_fused)
-    fmc("gb202", args.debug_fused)
-
-    if "gb10b" in supported:
-        gsp_bootloader("gb10b", args.debug_fused)
-        fmc("gb10b", args.debug_fused)
-
-    if "gb20b" in supported:
-        gsp_bootloader("gb20b", args.debug_fused)
-        fmc("gb20b", args.debug_fused)
-
-    if "gr100" in supported:
-        gsp_bootloader("gr100", args.debug_fused)
-        fmc("gr100", args.debug_fused)
+    # A GPU uses FMC if it doesn't use Booter
+    fmc_gpus = [gpu for gpu in supported if not has_booter(gpu)]
+    for gpu in fmc_gpus:
+        fmc(gpu, args.debug_fused)
 
     # Extract gsp.bin and create gsp.tlv
     if args.driver is not None:
