@@ -265,7 +265,18 @@ def symlink(dest: str, source: str, target_is_directory = False):
         # We can verify that the target exists if it's an absolute path
         if not os.path.exists(dest):
             raise MyException(f"symlink target {dest} for {source} does not exist")
-        dest = os.path.relpath(dest, start = os.path.dirname(os.path.abspath(source)))
+
+        start = os.path.dirname(os.path.abspath(source))
+        relative = os.path.relpath(dest, start = start)
+
+        # Both paths must share a common root, or this relative path will not
+        # name the target.  That holds only while every caller builds from
+        # `outputpath`, so confirm it rather than assume it.
+        candidate = os.path.join(start, relative)
+        if not os.path.exists(candidate) or not os.path.samefile(candidate, dest):
+            raise MyException(f"symlink {source} -> {relative} would not resolve to {dest}")
+
+        dest = relative
 
     try:
         os.symlink(dest, source, target_is_directory)
