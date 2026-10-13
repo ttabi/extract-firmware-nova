@@ -1476,7 +1476,7 @@ def symlinks():
             # ad103 -> ad102) are exempt.
             if os.path.isdir(full):
                 continue
-            resolved = os.path.normpath(os.path.join(dirpath, target))
+            resolved = os.path.realpath(full)
             if subdir and os.path.basename(os.path.dirname(resolved)) != subdir:
                 print(f"Warning: symlink {full} -> {target} does not point to a file in a '{subdir}' directory")
 
