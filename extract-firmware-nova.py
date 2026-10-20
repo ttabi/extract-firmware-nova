@@ -340,25 +340,53 @@ def nvoc_chain_end(text: str, start: int, what: str, filename: str) -> int:
         if not re.match(r"(?:\s|//[^\n]*\n)*else\b", text[pos:]):
             return pos
 
+# The HAL variables of one generated file: a dictionary of per-GPU dictionaries, keyed by
+# variable name.  A release that does not define a variable at all, or that does not
+# define it for every chip, is reported as a MyException naming the file it was read from
+# rather than as a bare KeyError, so that it reaches the "Error:" handler in __main__ like
+# any other problem with a source tree.  No caller has to declare up front which variables
+# it intends to read.
+#
+# Absence is a separate question from coverage, and only the caller knows whether it
+# matters, so "in", "get()", "items()" and "setdefault()" all behave as they do on any
+# dictionary.  That is what lets the callers that legitimately tolerate a variable this
+# release does not have keep doing so.
+class HalDict(dict):
+    def __init__(self, filename: str):
+        super().__init__()
+        self.filename = filename
+
+    def __missing__(self, variable):
+        raise MyException(f"{self.filename} has no '{variable}'")
+
+    # The value one variable has on one chip.  Reading it this way is what gives both
+    # halves of "not there" an error that names where the value was supposed to come from.
+    def value(self, variable: str, gpu: str) -> int | bool:
+        values = self[variable]
+
+        if gpu not in values:
+            raise MyException(f"'{variable}' in {self.filename} has no value for {gpu}")
+
+        return values[gpu]
+
 # Parse an NVOC-generated file and extract all of the HAL variables into a nested
 # dictionary.  The outer dictionary is keyed by variable name, and each of its values is
 # an inner dictionary that maps each GPU to the value the variable has there.  A variable
 # that does not vary by chip has the same value recorded for every GPU in `supported`.
 #
-# `required` names the variables this caller goes on to read.  Those must cover every GPU
-# in `supported` if the file defines them at all, because a partially covered variable
-# would otherwise be read as a zero or a KeyError further down.  A generated file holds
-# many variables besides the ones we want, so anything outside `required` is returned
-# with whatever coverage it happens to have rather than failing the run.
-def parse_nvoc_hals(filename, required) -> dict:
+# A generated file holds many variables besides the ones any one caller wants, and some of
+# them cover only a few chips, so nothing is required of the file here.  Reading a value
+# out of the HalDict that comes back is what reports a variable, or a chip, that this
+# release does not have.
+def parse_nvoc_hals(filename) -> dict:
     if not os.path.exists(filename):
-        return {}
+        return HalDict(filename)
 
     with open(filename) as f:
         text = f.read()
 
     pattern = re.compile(r"^[ \t]*//[ \t]*Hal field --[ \t]*([a-zA-Z]+)[ \t]*\n", re.MULTILINE)
-    hals2 = {}
+    hals2 = HalDict(filename)
 
     for marker in pattern.finditer(text):
         variable = marker.group(1)
@@ -368,10 +396,8 @@ def parse_nvoc_hals(filename, required) -> dict:
         unconditional = re.compile(rf"\s*pThis->{variable}\s*=\s*(.*?);", re.DOTALL)
         assignment = unconditional.match(text, marker.end())
         if assignment:
-            hals2[variable] = {}
             value = parse_c_value(assignment.group(1))
-            for gpu in supported:
-                hals2[variable][gpu] = value
+            hals2[variable] = {gpu: value for gpu in supported}
             continue
 
         # Otherwise the field is initialized by a single if / else-if / else statement that
@@ -404,9 +430,6 @@ def parse_nvoc_hals(filename, required) -> dict:
             value = parse_c_value(default.group(1))
             for gpu in supported:
                 field.setdefault(gpu, value)
-
-        if variable in required and len(field) != len(supported):
-            raise MyException(f"Expected {len(supported)} GPUs for '{variable}' in {filename} but found {len(field)}")
 
         hals2[variable] = field
 
@@ -727,8 +750,7 @@ def parse_gsp_fw_heap_base_size() -> dict:
     macro_file = "src/nvidia/inc/kernel/gpu/gsp/gsp_fw_heap.h"
 
     # Contains the fwHeapParamBaseSize and fwHeapParamPerChannelOverhead variables
-    kernel_gsp_nvoc = parse_nvoc_hals("src/nvidia/generated/g_kernel_gsp_nvoc.c",
-                                      ["fwHeapParamBaseSize", "fwHeapParamPerChannelOverhead"])
+    kernel_gsp_nvoc = parse_nvoc_hals("src/nvidia/generated/g_kernel_gsp_nvoc.c")
 
     # Turing and GA100 use LIBOS2, all others use LIBOS3
     GSP_FW_HEAP_PARAM_OS_SIZE_LIBOS2 = macro_value(macro_file, "GSP_FW_HEAP_PARAM_OS_SIZE_LIBOS2")
@@ -1902,7 +1924,7 @@ def main():
         # This may pick up variables we don't care about, depending
         # on the OpenRM version.
         # Note: g_gpu_arch_nvoc.c was added in r580
-        hals2 = parse_nvoc_hals("src/nvidia/generated/g_gpu_arch_nvoc.c", hals)
+        hals2 = parse_nvoc_hals("src/nvidia/generated/g_gpu_arch_nvoc.c")
         if "gspFwHeapBaseSize" in hals2:
             print("Generating GSP-RM TLV variables from NVOC source files")
             update_hals(hals2)
