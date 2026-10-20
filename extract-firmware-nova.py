@@ -126,7 +126,7 @@ hal_tlv_tags = {
     "HBSV": "gspFwHeapBaseSizeVgpu",
     "HSPV": "gspFwHeapSizePerVm",
     "PRSZ": "pmuReservedSize",
-    "PWSZ": "pmuNonWprReservedSize",
+    "GNWH": "nonWprHeapSize",
 }
 
 # The value each of those variables has on each GPU, filled in at runtime.
@@ -912,10 +912,18 @@ def parse_pmu_reserved_size() -> dict:
 
     return apply_wpr_meta_override("pmuReservedSize", pmuReservedSize)
 
-# Calculate what gpuGetPmuReservedMemoryNonWprSize() returns for each GPU.  r620 moved the
-# surfaces and misc terms out of the WPR reservation that kpmuReservedMemorySizeGet()
-# reports and into the non-WPR GSP carveout, where they are summed with no alignment of
-# their own:
+# Calculate what kgspGetNonWprHeapSize() returns for each GPU, which is the carveout that
+# sits just below WPR and lands in the WPR meta as nonWprHeapSize.  It covers GSP's own
+# non-WPR allocations, plus the PMU surfaces and misc that r620 moved out of the WPR
+# reservation kpmuReservedMemorySizeGet() reports.  Two hand-written functions spell that
+# out between them:
+#
+#   NvU32 kgspGetNonWprHeapSize_IMPL(OBJGPU *pGpu, KernelGsp *pKernelGsp)
+#   {
+#       return NV_ALIGN_UP(kgspGetNonWprHeapSizePortionForGsp(pGpu, pKernelGsp) +
+#                          gpuGetPmuReservedMemoryNonWprSize(pGpu),
+#                          GSP_CARVEOUT_NONWPR_ALIGNMENT);
+#   }
 #
 #   NvU32 gpuGetPmuReservedMemoryNonWprSize_IMPL(OBJGPU *pGpu)
 #   {
@@ -923,38 +931,58 @@ def parse_pmu_reserved_size() -> dict:
 #               gpuGetPmuReservedMemoryMiscSize(pGpu));
 #   }
 #
-# Older trees make no such split -- the whole reservation lives inside WPR -- so every GPU
-# is zero on them.
+# so the carveout is three per-chip HALs summed and then aligned once.  r615 and earlier
+# make no such split -- the whole PMU reservation lives inside WPR -- and there
+# kgspGetNonWprHeapSize is still one halified literal per chip.
 #
-# Nova adds this to the GSP's own portion to size the carveout, the same way RM does in
-# kgspGetNonWprHeapSize(), and that sum is what lands in the WPR meta as nonWprHeapSize.
-# So the iGPUs, which zero nonWprHeapSize outright, contribute nothing here either.
-def parse_pmu_non_wpr_reserved_size() -> dict:
-    gpu_c = "src/nvidia/generated/g_gpu_nvoc.c"
-    gpu_h = "src/nvidia/generated/g_gpu_nvoc.h"
-    gpu_source = "src/nvidia/src/kernel/gpu/gpu.c"
+# kgspPopulateWprMeta_TU102 rounds the result up to a megabyte before storing it, which no
+# release through r620 needs: the chips that reach it all return exactly a megabyte, and
+# the chips with an odd size store it unrounded through kgspPopulateWprMeta_GH100.
+def parse_non_wpr_heap_size() -> dict:
+    kernel_gsp_nvoc_c = "src/nvidia/generated/g_kernel_gsp_nvoc.c"
+    kernel_gsp_nvoc_h = "src/nvidia/generated/g_kernel_gsp_nvoc.h"
+    kernel_gsp_c = "src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c"
+    gpu_nvoc_c = "src/nvidia/generated/g_gpu_nvoc.c"
+    gpu_nvoc_h = "src/nvidia/generated/g_gpu_nvoc.h"
+    gpu_c = "src/nvidia/src/kernel/gpu/gpu.c"
 
-    body = function_body(gpu_source, "gpuGetPmuReservedMemoryNonWprSize_IMPL")
-    if body is None:
-        return {gpu: 0 for gpu in supported}
+    # r615 and earlier.  Every implementation is an inline constant.
+    nonWprHeapSize = parse_nvoc_hal_method(kernel_gsp_nvoc_c, kernel_gsp_nvoc_h,
+                                           "kgspGetNonWprHeapSize")
 
-    # Both terms are per-chip HALs.  Anything else in the sum is a term this code does
-    # not know how to evaluate, so refuse to guess.
-    terms = set(re.findall(r"(gpu\w+)\s*\(pGpu\)", body))
-    expected = {"gpuGetPmuReservedMemorySurfacesSize", "gpuGetPmuReservedMemoryMiscSize"}
-    if terms != expected:
-        raise MyException(f"gpuGetPmuReservedMemoryNonWprSize_IMPL in {gpu_source} sums "
-                          f"{sorted(terms)}, expected {sorted(expected)}")
+    # r620, where the sum has to be rebuilt from the two function bodies.  Anything else
+    # in either of them is a term this code cannot evaluate, so refuse to guess.
+    if not nonWprHeapSize:
+        bodies = (function_body(kernel_gsp_c, "kgspGetNonWprHeapSize_IMPL") or "") + \
+                 (function_body(gpu_c, "gpuGetPmuReservedMemoryNonWprSize_IMPL") or "")
+        terms = set(re.findall(r"(\w+)\s*\(\s*pGpu\b", bodies))
+        expected = {"kgspGetNonWprHeapSizePortionForGsp",
+                    "gpuGetPmuReservedMemoryNonWprSize",
+                    "gpuGetPmuReservedMemorySurfacesSize",
+                    "gpuGetPmuReservedMemoryMiscSize"}
+        if terms != expected:
+            raise MyException(f"kgspGetNonWprHeapSize is not halified in {kernel_gsp_nvoc_c}, "
+                              f"and the sum it and gpuGetPmuReservedMemoryNonWprSize make "
+                              f"is over {sorted(terms)} rather than {sorted(expected)}")
 
-    surfaces = parse_nvoc_hal_method(gpu_c, gpu_h, "gpuGetPmuReservedMemorySurfacesSize")
-    misc = parse_nvoc_hal_method(gpu_c, gpu_h, "gpuGetPmuReservedMemoryMiscSize")
-    if not surfaces or not misc:
-        raise MyException(f"gpuGetPmuReservedMemoryNonWprSize_IMPL exists in {gpu_source} "
-                          f"but its terms are not halified in {gpu_c}")
+        gsp_portion = parse_nvoc_hal_method(kernel_gsp_nvoc_c, kernel_gsp_nvoc_h,
+                                            "kgspGetNonWprHeapSizePortionForGsp")
+        surfaces = parse_nvoc_hal_method(gpu_nvoc_c, gpu_nvoc_h,
+                                         "gpuGetPmuReservedMemorySurfacesSize")
+        misc = parse_nvoc_hal_method(gpu_nvoc_c, gpu_nvoc_h, "gpuGetPmuReservedMemoryMiscSize")
+        if not (gsp_portion and surfaces and misc):
+            raise MyException(f"The terms of kgspGetNonWprHeapSize_IMPL in {kernel_gsp_c} "
+                              f"are not all halified in {kernel_gsp_nvoc_c} and {gpu_nvoc_c}")
 
-    pmuNonWprReservedSize = {gpu: surfaces[gpu] + misc[gpu] for gpu in supported}
+        # The memory manager owns the carveout, so that is where the alignment lives.
+        alignment = macro_value("src/nvidia/generated/g_mem_mgr_nvoc.h",
+                                "GSP_CARVEOUT_NONWPR_ALIGNMENT")
 
-    return apply_wpr_meta_override("nonWprHeapSize", pmuNonWprReservedSize)
+        nonWprHeapSize = {
+            gpu: round_up_to_base(gsp_portion[gpu] + surfaces[gpu] + misc[gpu], alignment)
+            for gpu in supported}
+
+    return apply_wpr_meta_override("nonWprHeapSize", nonWprHeapSize)
 
 # Build the HAL table for a source tree whose g_gpu_arch_nvoc.c does not carry these
 # values, which is still the case for every release through r620.  Each variable is
@@ -968,7 +996,7 @@ def parse_legacy_hals():
         "gspFwHeapBaseSizeVgpu": parse_gsp_fw_heap_base_size_vgpu(),
         "gspFwHeapSizePerVm": parse_gsp_fw_heap_size_per_vm(),
         "pmuReservedSize": parse_pmu_reserved_size(),
-        "pmuNonWprReservedSize": parse_pmu_non_wpr_reserved_size(),
+        "nonWprHeapSize": parse_non_wpr_heap_size(),
     }
 
     for hal in hals2:
