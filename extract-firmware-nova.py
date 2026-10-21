@@ -984,6 +984,53 @@ def parse_non_wpr_heap_size() -> dict:
 
     return apply_wpr_meta_override("nonWprHeapSize", nonWprHeapSize)
 
+# Calculate nonWprHeapSize for an older r630 tree whose g_gpu_arch_nvoc.c
+# carries the rest of the table but not this variable yet.  RM adds GSP's
+# own portion of the carveout to the PMU's and aligns the total:
+#
+#   NvU32 kgspGetNonWprHeapSize_IMPL(OBJGPU *pGpu, KernelGsp *pKernelGsp)
+#   {
+#       return NV_ALIGN_UP(kgspGetNonWprHeapSizePortionForGsp(pGpu, pKernelGsp) +
+#                          gpuGetPmuReservedMemoryNonWprSize(pGpu),
+#                          GSP_CARVEOUT_NONWPR_ALIGNMENT);
+#   }
+#
+# The PMU term needs no rebuilding of its own, as the arch table already carries it as
+# pmuNonWprReservedSize.
+def parse_r630_non_wpr_heap_size() -> dict:
+    gpu_arch_c = "src/nvidia/generated/g_gpu_arch_nvoc.c"
+    kernel_gsp_c = "src/nvidia/generated/g_kernel_gsp_nvoc.c"
+    kernel_gsp_h = "src/nvidia/generated/g_kernel_gsp_nvoc.h"
+    kernel_gsp = "src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c"
+
+    # Anything else in the sum is a term this code cannot evaluate, so refuse to guess.
+    body = function_body(kernel_gsp, "kgspGetNonWprHeapSize_IMPL")
+    terms = set(re.findall(r"(\w+)\s*\(\s*pGpu\b", body or ""))
+    expected = {"kgspGetNonWprHeapSizePortionForGsp",
+                "gpuGetPmuReservedMemoryNonWprSize"}
+    if terms != expected:
+        raise MyException(f"kgspGetNonWprHeapSize_IMPL in {kernel_gsp} sums "
+                          f"{sorted(terms)} rather than {sorted(expected)}")
+
+    gsp_portion = parse_nvoc_hal_method(kernel_gsp_c, kernel_gsp_h,
+                                        "kgspGetNonWprHeapSizePortionForGsp")
+    pmu = parse_nvoc_hals(gpu_arch_c)
+    if not gsp_portion:
+        raise MyException(f"kgspGetNonWprHeapSize_IMPL exists in {kernel_gsp} but "
+                          f"kgspGetNonWprHeapSizePortionForGsp is not halified in "
+                          f"{kernel_gsp_c}")
+
+    # The memory manager owns the carveout, so that is where the alignment lives.
+    alignment = macro_value("src/nvidia/generated/g_mem_mgr_nvoc.h",
+                            "GSP_CARVEOUT_NONWPR_ALIGNMENT")
+
+    nonWprHeapSize = {
+        gpu: round_up_to_base(gsp_portion[gpu] + pmu.value("pmuNonWprReservedSize", gpu),
+                              alignment)
+        for gpu in supported}
+
+    return apply_wpr_meta_override("nonWprHeapSize", nonWprHeapSize)
+
 # Build the HAL table for a source tree whose g_gpu_arch_nvoc.c does not carry these
 # values, which is still the case for every release through r620.  Each variable is
 # reconstructed by its own function, from whatever gsp_fw_heap.h, the NVOC-generated files
@@ -1956,6 +2003,12 @@ def main():
         if "gspFwHeapBaseSize" in hals2:
             print("Generating GSP-RM TLV variables from NVOC source files")
             update_hals(hals2)
+
+            # Older r630 carries every variable but this one, which has to be rebuilt
+            # from the HALs that RM sums to get it.
+            if "nonWprHeapSize" not in hals2:
+                print("Older tree detected; generating nonWprHeapSize from other fields")
+                update_hals({"nonWprHeapSize": parse_r630_non_wpr_heap_size()})
         else:
             # For older versions of OpenRM, scrape other files to build the
             # variables so that they mimic what g_gpu_arch_nvoc.c would
