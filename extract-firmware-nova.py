@@ -1061,6 +1061,23 @@ def update_hals(update: dict):
         hals.setdefault(field, {}).update(
             {gpu: value for gpu, value in values.items() if gpu in supported})
 
+# Nova reads the HAL variables out of gsp.tlv only when RM provides a functioning GMCAPI
+# interface.  Firmware without one boots through a path that ignores the tags, so scraping
+# such a tree would only ship values that nothing ever reads.
+#
+# The presence of MSGQ_VERSION_MAJOR is what says that interface is there: the message
+# queue gained a major/minor version pair when GMCAPI became usable.  A tree without it
+# declares a single MSGQ_VERSION instead, from a header under src/common/shared rather than
+# src/nvidia, so neither the macro nor the path below exists.
+def supports_gmcapi() -> bool:
+    filename = "src/nvidia/inc/libraries/msgq/msgq_priv.h"
+
+    if not os.path.exists(filename):
+        return False
+
+    with open(filename) as f:
+        return bool(re.search(r"^\s*#define\s+MSGQ_VERSION_MAJOR\b", f.read(), re.MULTILINE))
+
 # -------------------------------------------------------------------
 # Generate firmware binaries
 # -------------------------------------------------------------------
@@ -1883,6 +1900,9 @@ def main():
         help = "Also create symlinks for all supported GPUs.  Requires -d option.")
     parser.add_argument("-w", "--whence", action="store_true",
         help = "Also generate a WHENCE file.  Requires -d and -s options.")
+    parser.add_argument("--nvoc", action = argparse.BooleanOptionalAction,
+        help = "Add the NVOC heap size parameters to gsp.tlv.  Requires -d option."
+        " Defaults to on for GSP-RM versions that support GMCAPI, off otherwise.")
     parser.add_argument("--nvidiadir", default = nvidiadir, type = alphanumeric,
         help = "Output directory top-level path, i.e. /lib/firmware/nvidia/{nvidiadir}/<gpu>/."
         " Default: '%(default)s'")
@@ -1901,6 +1921,8 @@ def main():
         parser.error("-s/--symlink requires -d/--driver")
     if args.whence and (args.driver is None or not args.symlink):
         parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
+    if args.nvoc and args.driver is None:
+        parser.error("--nvoc requires -d")
 
     if args.clean and args.output is None:
         parser.error("--clean requires -o/--output")
@@ -1933,6 +1955,14 @@ def main():
 
     if not version.isascii():
         raise MyException(f"Version string {version} must not contain non-ASCII characters")
+
+    # If --[no-]nvoc is not specified, then automatically determine whether NVOC TLV
+    # variables should be generated.  Technically, we can do this for any version of
+    # OpenRM all the way back to r560, but Nova will only use these TLV variables if
+    # it tries to boot a GSP-RM version that also supports GMCAPI.  There is no hard
+    # requirement for this -- it's just how Nova is written.
+    if args.nvoc is None:
+        args.nvoc = supports_gmcapi() and args.driver is not None
 
     nvidiadir = args.nvidiadir
     subdir = args.subdir
@@ -1991,10 +2021,7 @@ def main():
     for gpu in fmc_gpus:
         fmc(gpu, args.debug_fused)
 
-    # Extract gsp.bin and create gsp.tlv
-    if args.driver is not None:
-        # We only need to read the HALs if we're generating gsp.tlv
-
+    if args.nvoc:
         # Search for the new NVoC variables, which were added in r630.
         # This may pick up variables we don't care about, depending
         # on the OpenRM version.
@@ -2018,7 +2045,10 @@ def main():
                 print("Generating GSP-RM TLV variables from legacy source files")
                 update_hals(hals2)
 
-        # print_hals(hals)
+        print_hals(hals)
+
+    # Extract gsp.bin and create gsp.tlv
+    if args.driver is not None:
         driver(args.driver)
 
     if args.symlink:
