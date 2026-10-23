@@ -1883,6 +1883,8 @@ def main():
         help = "Also create symlinks for all supported GPUs.  Requires -d option.")
     parser.add_argument("-w", "--whence", action="store_true",
         help = "Also generate a WHENCE file.  Requires -d and -s options.")
+    parser.add_argument("--nvoc", action="store_true",
+        help = "Add the NVOC heap size parameters to gsp.tlv.  Requires -d option.")")
     parser.add_argument("--nvidiadir", default = nvidiadir, type = alphanumeric,
         help = "Output directory top-level path, i.e. /lib/firmware/nvidia/{nvidiadir}/<gpu>/."
         " Default: '%(default)s'")
@@ -1901,6 +1903,8 @@ def main():
         parser.error("-s/--symlink requires -d/--driver")
     if args.whence and (args.driver is None or not args.symlink):
         parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
+    if args.nvoc and not args.driver:
+        parser.error("--nvoc requires -d")
 
     if args.clean and args.output is None:
         parser.error("--clean requires -o/--output")
@@ -1991,10 +1995,7 @@ def main():
     for gpu in fmc_gpus:
         fmc(gpu, args.debug_fused)
 
-    # Extract gsp.bin and create gsp.tlv
-    if args.driver is not None:
-        # We only need to read the HALs if we're generating gsp.tlv
-
+    if args.nvoc:
         # Search for the new NVoC variables, which were added in r630.
         # This may pick up variables we don't care about, depending
         # on the OpenRM version.
@@ -2018,7 +2019,10 @@ def main():
                 print("Generating GSP-RM TLV variables from legacy source files")
                 update_hals(hals2)
 
-        # print_hals(hals)
+        print_hals(hals)
+
+    # Extract gsp.bin and create gsp.tlv
+    if args.driver is not None:
         driver(args.driver)
 
     if args.symlink:
