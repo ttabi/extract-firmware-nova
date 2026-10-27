@@ -1058,7 +1058,11 @@ def update_hals(update: dict):
     global hals
 
     for field, values in update.items():
-        hals.setdefault(field, {}).update(
+        if field not in hal_tlv_tags.values():
+            # Skip tags that we don't care about.
+            continue
+
+        hals[field].update(
             {gpu: value for gpu, value in values.items() if gpu in supported})
 
 # Nova reads the HAL variables out of gsp.tlv only when RM provides a functioning GMCAPI
