@@ -544,6 +544,8 @@ def parse_nvoc_hal_method(c_filename: str, h_filename: str, method: str) -> dict
 
 # Look up the value of a HAL field for one GPU.
 def hal_value(field: str, gpu: str) -> int | bool:
+    global hals
+
     if field not in hals:
         raise MyException(f"HAL field '{field}' is not defined")
 
@@ -552,7 +554,7 @@ def hal_value(field: str, gpu: str) -> int | bool:
     if gpu in values:
         return values[gpu]
 
-    raise MyException(f"HAL field '{field}' has no value for {gpu} and no default")
+    raise MyException(f"HAL field '{field}' has no value for {gpu}")
 
 # Write a dictionary of HAL variables to nvoc-<version>.txt as an ASCII table, one column
 # per variable and one row per GPU.  Values print as hexadecimal, except for the booleans
