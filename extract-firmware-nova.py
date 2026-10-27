@@ -119,7 +119,8 @@ libos2_gpus = ["tu102", "tu104", "tu106", "tu116", "tu117", "ga100"]
 # All other GPUs use LIBOS3.
 libos3_gpus = []
 
-# The GSP HAL variables Nova needs, and the gsp.tlv tag each one is written as.
+# For r615 and later, these are the TLV tags for the GSP-RM heap sizes,
+# and the corresponding NVOC variables.
 hal_tlv_tags = {
     "HBSZ": "gspFwHeapBaseSize",
     "HSPG": "gspFwHeapSizePerGb",
@@ -129,8 +130,12 @@ hal_tlv_tags = {
     "GNWH": "nonWprHeapSize",
 }
 
-# The value each of those variables has on each GPU, filled in at runtime.
-hals = {field: {} for field in hal_tlv_tags.values()}
+# The actual NVOC HAL dictionary, built at runtime.  This script supports
+# versions of GSP-RM that don't have HAL variables (i.e. r570 - r610).
+# We could pre-initialize this dictionary here, but we use an empty
+# dictionary to determine whether there are any variables to write to
+# the TLV file.
+hals = {}
 
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
@@ -1437,9 +1442,10 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
     tlv.add("SIZE", len(elf.section(".fwimage")))
     tlv.add("FILE", "gsp.bin")
 
-    # Also pick up the HAL variables
-    for tag, field in hal_tlv_tags.items():
-        tlv.add(tag, hal_value(field, gpu))
+    # Also pick up the HAL variables, which only a --nvoc run has scraped.
+    if hals:
+        for tag, field in hal_tlv_tags.items():
+            tlv.add(tag, hal_value(field, gpu))
 
     # The ".note.gnu.build-id" section contains a 16-byte ELF note header
     # followed by the 20-byte build ID.
@@ -1790,7 +1796,11 @@ def symlinks():
             print(f"Warning: {os.path.join(topdir, gpu, subdir)}/ must not have both booter and fmc")
 
     # Verify that the gsp.tlv for each GPU has the correct TLV values for that GPU.  This
-    # catches situations where one GPU is symlinked to another, but shouldn't be.
+    # catches situations where one GPU is symlinked to another, but shouldn't be.  A run
+    # without --nvoc has no values to compare against and wrote none itself.
+    if not hals:
+        return
+
     for gpu in supported:
         filename = os.path.join(topdir, gpu, subdir, "gsp.tlv")
         if not os.path.exists(filename):
@@ -1920,7 +1930,7 @@ def main():
         help = "Also generate a WHENCE file.  Requires -d and -s options.")
     parser.add_argument("--nvoc", action = argparse.BooleanOptionalAction,
         help = "Add the NVOC heap size parameters to gsp.tlv.  Requires -d option."
-        " Defaults to on for GSP-RM versions that support GMCAPI, off otherwise.")
+        " Defaults to 'YES' for GSP-RM versions that support GMCAPI, 'NO' otherwise.")
     parser.add_argument("--nvidiadir", default = nvidiadir, type = alphanumeric,
         help = "Output directory top-level path, i.e. /lib/firmware/nvidia/{nvidiadir}/<gpu>/."
         " Default: '%(default)s'")
@@ -2040,6 +2050,14 @@ def main():
         fmc(gpu, args.debug_fused)
 
     if args.nvoc:
+        # Now that we know we're going to add NVOC HAL variables to gsp.tlv,
+        # we pre-initialize the dictionary with the actual variables that
+        # we care about.  Function update_hals() will not add values to this
+        # dictionary for any variable that doesn't already exist.  Also,
+        # gsp_tlv_from_elf() will skip adding these variables if `hals` is
+        # empty.
+        hals = {field: {} for field in hal_tlv_tags.values()}
+
         # Search for the new NVoC variables, which were added in r630.
         # This may pick up variables we don't care about, depending
         # on the OpenRM version.
