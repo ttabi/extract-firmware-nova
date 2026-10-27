@@ -1845,7 +1845,14 @@ def whence():
             if os.path.islink(full):
                 whence.append(f"Link: {os.path.relpath(full, outputpath)} -> {os.readlink(full)}\n")
 
-    whence = sorted(whence, key=lambda s: s.split()[1])
+    # Match the order of GPUs in the WHENCE file with the order in `supported`.
+    def sort_key(entry: str) -> tuple:
+        path = entry.split()[1]
+        gpu = next((part for part in path.split("/") if part in supported), None)
+
+        return (supported.index(gpu) if gpu else -1, path)
+
+    whence = sorted(whence, key = sort_key)
 
     with open(os.path.join(outputpath, "WHENCE.txt"), "w") as f:
         f.writelines(whence)
