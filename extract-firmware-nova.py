@@ -1845,7 +1845,19 @@ def whence():
             if os.path.islink(full):
                 whence.append(f"Link: {os.path.relpath(full, outputpath)} -> {os.readlink(full)}\n")
 
-    whence = sorted(whence, key=lambda s: s.split()[1])
+    # Match the order of GPUs in the WHENCE file with the order in `supported`.  The GPU
+    # directory sits directly below nvidia/<nvidiadir>/, so it is taken by position rather
+    # than by name, which would pick `nvidiadir` itself whenever it is set to the name of a
+    # chip.  An empty `nvidiadir` contributes no path component at all.
+    gpu_index = 2 if nvidiadir else 1
+
+    def sort_key(entry: str) -> tuple:
+        path = entry.split()[1]
+        gpu = path.split("/")[gpu_index]
+
+        return (supported.index(gpu), path)
+
+    whence = sorted(whence, key = sort_key)
 
     with open(os.path.join(outputpath, "WHENCE.txt"), "w") as f:
         f.writelines(whence)
