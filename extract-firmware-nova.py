@@ -129,8 +129,10 @@ hal_tlv_tags = {
     "GNWH": "nonWprHeapSize",
 }
 
-# The value each of those variables has on each GPU, filled in at runtime.
-hals = {field: {} for field in hal_tlv_tags.values()}
+# The value each of those variables has on each GPU, filled in at runtime.  Only --nvoc
+# scrapes them out of the source tree, so this stays empty on a run that did not ask for
+# them, and an empty table is what leaves the heap parameters out of gsp.tlv.
+hals = {}
 
 # -------------------------------------------------------------------
 # Build tag-length-value (TLV) list
@@ -1437,9 +1439,10 @@ def gsp_tlv_from_elf(elf: ELF64, signame: str, gpu: str):
     tlv.add("SIZE", len(elf.section(".fwimage")))
     tlv.add("FILE", "gsp.bin")
 
-    # Also pick up the HAL variables
-    for tag, field in hal_tlv_tags.items():
-        tlv.add(tag, hal_value(field, gpu))
+    # Also pick up the HAL variables, which only a --nvoc run has scraped.
+    if hals:
+        for tag, field in hal_tlv_tags.items():
+            tlv.add(tag, hal_value(field, gpu))
 
     # The ".note.gnu.build-id" section contains a 16-byte ELF note header
     # followed by the 20-byte build ID.
@@ -1790,7 +1793,11 @@ def symlinks():
             print(f"Warning: {os.path.join(topdir, gpu, subdir)}/ must not have both booter and fmc")
 
     # Verify that the gsp.tlv for each GPU has the correct TLV values for that GPU.  This
-    # catches situations where one GPU is symlinked to another, but shouldn't be.
+    # catches situations where one GPU is symlinked to another, but shouldn't be.  A run
+    # without --nvoc has no values to compare against and wrote none itself.
+    if not hals:
+        return
+
     for gpu in supported:
         filename = os.path.join(topdir, gpu, subdir, "gsp.tlv")
         if not os.path.exists(filename):
@@ -2035,6 +2042,12 @@ def main():
         fmc(gpu, args.debug_fused)
 
     if args.nvoc:
+        # The variables Nova needs are seeded here rather than at module scope so that a
+        # run without --nvoc leaves hals{} empty.  Seeding them means a release that is
+        # missing one fails when gsp.tlv is written instead of quietly omitting its tag,
+        # and it puts them ahead of the incidental variables in the nvoc-<version>.txt table.
+        hals = {field: {} for field in hal_tlv_tags.values()}
+
         # Search for the new NVoC variables, which were added in r630.
         # This may pick up variables we don't care about, depending
         # on the OpenRM version.
