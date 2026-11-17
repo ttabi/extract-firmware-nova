@@ -1929,8 +1929,11 @@ def main():
     parser.add_argument("-w", "--whence", action="store_true",
         help = "Also generate a WHENCE file.  Requires -d and -s options.")
     parser.add_argument("--nvoc", action = argparse.BooleanOptionalAction,
-        help = "Add the NVOC heap size parameters to gsp.tlv.  Requires -d option."
-        " Defaults to 'YES' for GSP-RM versions that support GMCAPI, 'NO' otherwise.")
+        help = "Determine the NVOC heap size parameters for gsp.tlv."
+        " If -d is not specified, then the NVOC parameters are only scraped and reported,"
+        " but not written to gsp.tlv, which is useful in verifying an OpenRM tree."
+        " Defaults to 'YES' if -d is specified and this version of OpenRM supports GMCAPI,"
+        " 'NO' otherwise.")
     parser.add_argument("--nvidiadir", default = nvidiadir, type = alphanumeric,
         help = "Output directory top-level path, i.e. /lib/firmware/nvidia/{nvidiadir}/<gpu>/."
         " Default: '%(default)s'")
@@ -1949,8 +1952,6 @@ def main():
         parser.error("-s/--symlink requires -d/--driver")
     if args.whence and (args.driver is None or not args.symlink):
         parser.error("-w/--whence requires both -d/--driver and -s/--symlink")
-    if args.nvoc and args.driver is None:
-        parser.error("--nvoc requires -d")
 
     if args.clean and args.output is None:
         parser.error("--clean requires -o/--output")
@@ -2050,8 +2051,8 @@ def main():
         fmc(gpu, args.debug_fused)
 
     if args.nvoc:
-        # Now that we know we're going to add NVOC HAL variables to gsp.tlv,
-        # we pre-initialize the dictionary with the actual variables that
+        # Now that we know we're going to scrape the NVOC HAL variables, we
+        # pre-initialize the dictionary with the actual variables that
         # we care about.  Function update_hals() will not add values to this
         # dictionary for any variable that doesn't already exist.  Also,
         # gsp_tlv_from_elf() will skip adding these variables if `hals` is
