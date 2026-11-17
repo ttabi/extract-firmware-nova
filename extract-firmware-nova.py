@@ -599,7 +599,7 @@ def print_hals(hals2: dict):
     filename = f"nvoc-{version}.txt"
     print(f"Creating {filename}")
 
-    with open(os.path.join(tempfile.gettempdir(), filename), "w") as f:
+    with open(os.path.join(outputpath, filename), "w") as f:
         print(f"GSP-RM version {version}", file = f)
         print("\n".join([rule, line(headings), rule] + [line(row) for row in rows] + [rule]),
               file = f)
