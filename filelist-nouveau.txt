@@ -1,0 +1,19 @@
+# This is a list of files that are included open-gpu-kernel-modules package
+# for use with the Nouveau and Nova upstream Linux device drivers.
+
+# File filelist-nouveau.txt is not included in Orin builds.
+
+DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract_firmware_common.py
+PACKAGE_FILE    : scripts/extract_firmware_common.py
+
+DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract-firmware-nouveau.py
+PACKAGE_FILE    : scripts/extract-firmware-nouveau.py
+
+DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract-firmware-nova.py
+PACKAGE_FILE    : scripts/extract-firmware-nova.py
+
+DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract-firmware-nouveau.txt
+PACKAGE_FILE    : scripts/extract-firmware-nouveau.txt
+
+DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/nouveau_firmware_layout.ods
+PACKAGE_FILE    : scripts/nouveau_firmware_layout.ods
