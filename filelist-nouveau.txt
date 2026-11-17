@@ -12,6 +12,9 @@ PACKAGE_FILE    : scripts/extract-firmware-nouveau.py
 DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract-firmware-nova.py
 PACKAGE_FILE    : scripts/extract-firmware-nova.py
 
+DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract_firmware_pcpp.py
+PACKAGE_FILE    : scripts/extract_firmware_pcpp.py
+
 DIST_FILE       : /NV_SOURCE/drivers/resman/build/common/extract-firmware-nouveau.txt
 PACKAGE_FILE    : scripts/extract-firmware-nouveau.txt
 
